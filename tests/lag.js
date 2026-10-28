@@ -20,7 +20,7 @@ const source = Gio.SettingsSchemaSource.new_from_directory(`${dir}/schemas`, Gio
 const settings = new Gio.Settings({settings_schema: source.lookup('org.gnome.shell.extensions.tuple', false)});
 const host = {
     copy() {}, readClipboard: cb => cb(''), openUrl() {}, notify: () => ({destroy() {}}),
-    arrangeWindows() {}, focusWindow: () => false, windowSizes: () => '',
+    arrangeWindows() {}, resetStage() {}, hideOverlay: () => false, focusWindow: () => false, windowSizes: () => '',
 };
 
 const idle = ARGV[0] === '--idle';

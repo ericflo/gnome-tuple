@@ -26,7 +26,32 @@ export default class TuplePreferences extends ExtensionPreferences {
         switchRow(calls, 'copy-link-on-new-call', 'Copy the call link on New call');
         switchRow(calls, 'notify-incoming', 'Notify on incoming calls');
         switchRow(calls, 'notify-joins', 'Notify when someone joins your call');
+        switchRow(calls, 'performance-during-calls', 'Performance power mode during calls',
+            'Tuple decodes video in software, on the CPU; this keeps it on the fast cores while a call lasts');
+        switchRow(calls, 'keep-overlay-off', "Keep Tuple's drawing overlay off",
+            "On GNOME it covers your whole screen while you share. Guests' drawings then don't show on your own screen");
         page.add(calls);
+
+        // Shortcuts: an accelerator per row, e.g. <Super><Control>Escape.
+        const keys = new Adw.PreferencesGroup({
+            title: 'Shortcuts',
+            description: 'They work over anything, fullscreen windows included. Write them like <Super><Control>t; leave blank to turn one off.',
+        });
+        for (const [key, title] of [['toggle-menu-shortcut', 'Open the Tuple menu'], ['stop-sharing-shortcut', 'Stop sharing your screen']]) {
+            const row = new Adw.EntryRow({title, show_apply_button: true});
+            row.text = settings.get_strv(key)[0] ?? '';
+            row.connect('apply', () => {
+                const accel = row.text.trim();
+                const [ok] = accel === '' ? [true] : Gtk.accelerator_parse(accel);
+                if (ok)
+                    settings.set_strv(key, accel === '' ? [] : [accel]);
+                else
+                    row.add_css_class('error');
+            });
+            row.connect('changed', () => row.remove_css_class('error'));
+            keys.add(row);
+        }
+        page.add(keys);
 
         const people = new Adw.PreferencesGroup({title: 'People'});
         const refresh = new Adw.SpinRow({
@@ -42,7 +67,7 @@ export default class TuplePreferences extends ExtensionPreferences {
 
         const devices = new Adw.PreferencesGroup({
             title: 'Camera and microphone',
-            description: "Tuple for Linux can't send webcam video or pick an input yet. Your camera shows as a local tile (with mpv) that they see through your screen share, and the chosen mic is applied by moving Tuple's recording stream. Both can also be picked from the menu during a call.",
+            description: "Tuple for Linux can't send webcam video or pick an input yet. Your camera can show as a tile (with mpv) inside your screen share; drag it to move it, scroll to resize it, q to close it. The chosen mic is applied by moving Tuple's recording stream. Both can also be picked from the menu during a call.",
         });
         const size = new Adw.ComboRow({
             title: 'Camera tile size',
@@ -52,6 +77,7 @@ export default class TuplePreferences extends ExtensionPreferences {
         size.selected = Math.max(0, SIZES.indexOf(settings.get_string('camera-size')));
         size.connect('notify::selected', () => settings.set_string('camera-size', SIZES[size.selected] ?? 'medium'));
         devices.add(size);
+        switchRow(devices, 'camera-follows-share', 'Turn the camera off when you stop sharing');
         switchRow(devices, 'camera-follows-call', 'Turn the camera off when the call ends');
         for (const [key, title] of [['camera-device', 'Camera (blank: system default)'], ['mic-device', 'Microphone source (blank: system default)']]) {
             const row = new Adw.EntryRow({title, show_apply_button: true});

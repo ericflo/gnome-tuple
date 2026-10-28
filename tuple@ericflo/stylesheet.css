@@ -77,3 +77,11 @@
 
 .tuple-footer { spacing: 4px; }
 .tuple-flat { background-color: transparent; padding: 4px 10px; font-weight: normal; }
+
+/* "Tuple for Linux can't send webcam video…" with its two buttons. */
+.tuple-notice {
+  spacing: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background-color: rgba(127, 127, 127, 0.14);
+}

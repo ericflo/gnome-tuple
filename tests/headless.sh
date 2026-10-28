@@ -6,10 +6,13 @@
 # Usage: tests/headless.sh [out-dir] [dark|light]   screenshots
 #        tests/headless.sh --clicks                   click the switches with a
 #                                                     virtual pointer (tests/clicks.js)
+#        tests/headless.sh --stage [out-dir]          the camera flow and call stage
+#                                                     with real input (tests/stage.js)
 set -euo pipefail
 
 mode=screenshots
 if [[ ${1:-} == --clicks ]]; then mode=clicks; shift; fi
+if [[ ${1:-} == --stage ]]; then mode=stage; shift; fi
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 out=$(realpath -m "${1:-/tmp/tuple-shots}")
@@ -58,7 +61,11 @@ dbus-run-session -- bash -c '
   shell=$!
   gdbus wait --session --timeout 60 org.gnome.Shell || { echo "shell did not start"; tail -30 "$root/shell.log"; exit 1; }
   sleep 4
-  if [ "$mode" = clicks ]; then gjs -m "$here/tests/clicks.js"; else gjs -m "$here/tests/screenshots.js" "$out"; fi
+  case "$mode" in
+    clicks) gjs -m "$here/tests/clicks.js" ;;
+    stage) gjs -m "$here/tests/stage.js" "$out" ;;
+    *) gjs -m "$here/tests/screenshots.js" "$out" ;;
+  esac
   status=$?
   kill $shell 2>/dev/null; wait $shell 2>/dev/null
   echo "--- shell log (extension lines)"

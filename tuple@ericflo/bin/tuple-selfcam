@@ -1,39 +1,64 @@
 #!/bin/bash
-# tuple-selfcam — your camera as a square, mirrored tile for the call stage.
+# tuple-selfcam — your camera as a square, mirrored tile.
 #
-# Tuple for Linux can't send webcam video yet (its WebcamCapturerAdapter is a
-# TODO in v2026_09_16.1, and it rejects ShareWebcamRequest), so this is a local
-# view: it reaches the other side only through your screen share.
-# windows.js places it next to their webcam.
+# Tuple for Linux can't send webcam video ("WebcamCapturerAdapter: TODO:
+# implement Start"; it rejects ShareWebcamRequest), so the only way the other
+# side sees your camera is this tile, inside your screen share. windows.js
+# starts it in the bottom-right corner, next to their webcam, and then leaves
+# it wherever you put it.
 #
-# Usage: tuple-selfcam [device]   (blank: the first from tuple-cameras)
+# GNOME draws no title bar for it, so it takes the mouse itself:
+#   drag           move it
+#   scroll         bigger / smaller
+#   double-click   small / large
+#   q or Esc       turn it off
+# (Super+drag, and Alt+F7 / Alt+F8 then the arrow keys, work too.)
+#
+# It captures at 640x480 when the camera offers that: a tile never needs
+# more, and it's half the CPU of 720p (MJPEG decode, crop and mirror).
+#
+# Usage: tuple-selfcam [device]   blank: the first from tuple-cameras
+#        tuple-selfcam --test     a test pattern instead of a camera
 # Exits 3 with no webcam, 127 without mpv.
 set -uo pipefail
 
-dev="${1:-}"
-[ -n "$dev" ] || dev=$("$(dirname "$0")/tuple-cameras" | sed -n '1s/[[:space:]].*//p')
-[ -n "$dev" ] || { echo 'No webcam found' >&2; exit 3; }
+here=$(dirname "$0")
 command -v mpv >/dev/null || { echo "mpv not installed" >&2; exit 127; }
 
-# A tile is at most ~a quarter of the screen height, so 720p is plenty and
-# cheap; prefer MJPEG at that size — raw YUYV at 720p is often capped at 10fps
-# on USB cameras.
-fmts=$(v4l2-ctl --list-formats-ext -d "$dev" 2>/dev/null)
-size=""
-for r in 1280x720 1920x1080 640x480 640x360; do
-  case "$fmts" in *"$r"*) size=$r; break ;; esac
-done
-opts="framerate=30"
-[ -n "$size" ] && opts="video_size=$size,$opts"
-if awk -v r="$size" '/\[[0-9]+\]:/{f=$2} /Size/ && $3==r && f ~ /MJPG/ {found=1} END{exit !found}' <<<"$fmts"; then
-  opts="input_format=mjpeg,$opts"
+common=(
+  --profile=low-latency --untimed --no-cache
+  --title=tuple-selfcam --wayland-app-id=tuple-selfcam
+  --keepaspect-window=yes --no-border --no-audio --no-osc --osd-level=0
+  --autofit=480x480
+  --no-input-default-bindings "--input-conf=$here/tuple-selfcam.conf"
+  --window-dragging=yes --cursor-autohide=1500
+  --really-quiet
+)
+
+if [ "${1:-}" = --test ]; then
+  exec mpv "av://lavfi:testsrc2=size=480x480:rate=30" "${common[@]}"
 fi
 
-exec mpv "av://v4l2:$dev" \
-  --profile=low-latency --untimed --no-cache \
-  --demuxer-lavf-o="$opts" \
-  '--vf=lavfi=[crop=min(iw\,ih):min(iw\,ih),hflip]' \
-  --title=tuple-selfcam --wayland-app-id=tuple-selfcam \
-  --keepaspect-window=yes --no-border --no-audio --no-osc --osd-level=0 \
-  --no-input-default-bindings --input-cursor=no --cursor-autohide=always \
-  --really-quiet
+dev="${1:-}"
+[ -n "$dev" ] || dev=$("$here/tuple-cameras" | sed -n '1s/[[:space:]].*//p')
+[ -n "$dev" ] || { echo 'No webcam found' >&2; exit 3; }
+
+# The smallest size that's plenty, in MJPEG if the camera has it there (raw
+# YUYV at larger sizes is often capped at 10fps over USB).
+fmts=$(v4l2-ctl --list-formats-ext -d "$dev" 2>/dev/null)
+mjpeg_at() { awk -v r="$1" '/\[[0-9]+\]:/{f=$2} /Size/ && $3==r && f ~ /MJPG/ {found=1} END{exit !found}' <<<"$fmts"; }
+size="" mjpeg=""
+for r in 640x480 1280x720 640x360 1920x1080; do
+  if mjpeg_at "$r"; then size=$r mjpeg=1; break; fi
+done
+if [ -z "$size" ]; then
+  for r in 640x480 640x360 1280x720; do
+    case "$fmts" in *"$r"*) size=$r; break ;; esac
+  done
+fi
+opts="framerate=30"
+[ -n "$size" ] && opts="video_size=$size,$opts"
+[ -n "$mjpeg" ] && opts="input_format=mjpeg,$opts"
+
+exec mpv "av://v4l2:$dev" --demuxer-lavf-o="$opts" \
+  '--vf=lavfi=[crop=min(iw\,ih):min(iw\,ih),hflip]' "${common[@]}"

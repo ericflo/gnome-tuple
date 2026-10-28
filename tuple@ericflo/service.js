@@ -160,6 +160,7 @@ export class Service {
         this.pending = new Set();
         this.calling = null;             // the contact `tuple call start` is ringing
         this.me = null;                  // {name, email} of whoever's signed in
+        this.cameraOffer = false;        // "share your screen with your camera?" is showing
         this.cameras = [];
         this.mics = [];
         this.defaultMic = '';
@@ -178,7 +179,7 @@ export class Service {
         this._settingsIds = [
             settings.connect('changed::mic-device', () => this._changed()),
             settings.connect('changed::camera-device', () => this._changed()),
-            settings.connect('changed::camera-size', () => this._host.arrangeWindows()),
+            settings.connect('changed::camera-size', () => this._host.resetStage()),
             settings.connect('changed::tuple-command', () => this._resolveTuple()),
             settings.connect('changed::refresh-interval', () => this._scheduleContactRefresh()),
         ];
@@ -214,6 +215,7 @@ export class Service {
             proc.kill();
         this._procs.clear();
         this._incomingNote?.destroy();
+        this._releasePower();
         this._listeners = [];
     }
 
@@ -228,6 +230,8 @@ export class Service {
             return;
         this._later('emit', 0, () => {
             this._syncMicRoute();
+            this._syncCameraWithShare();
+            this._syncPowerHold();
             for (const fn of this._listeners)
                 fn();
         });
@@ -1084,13 +1088,34 @@ export class Service {
         this.run([on ? 'share' : 'unshare'], {
             replyAs: on ? 'share' : 'unshare',
             onDone: reply => {
+                if (!reply.ok)
+                    this._cameraWithShare = false;
                 this.say(reply.ok ? (on ? 'Sharing your screen' : 'Stopped sharing') : reply.message, !reply.ok);
             },
         });
+        if (this.demo !== '') {
+            // Demo: pretend, so the share-and-camera flow can be tried.
+            const s = Model.cloneState(this.log);
+            s.sharing = on;
+            this.log = s;
+            this._changed();
+        }
     }
 
     toggleShare() {
         this.setSharing(!this.sharing);
+    }
+
+    // The way out when something covers the screen while you share (the
+    // stop-sharing shortcut): stop the share whatever we think its state is,
+    // turn the camera tile off, and hide Tuple's overlay if it's up.
+    stopSharing() {
+        this._cameraWithShare = false;
+        const hid = this._host.hideOverlay();
+        this.setCamera(false);
+        this.setSharing(false);
+        if (hid)
+            this.say("Stopped sharing and hid Tuple's drawing overlay");
     }
 
     endCall() {
@@ -1147,18 +1172,45 @@ export class Service {
     }
 
     // ── Camera ────────────────────────────────────────────────────────────
-    // Tuple for Linux can't send webcam video yet, so your camera is a local
-    // tile (bin/tuple-selfcam, mpv) on the call stage next to theirs, and it
-    // reaches them only through your screen share.
+    // Tuple for Linux can't send webcam video ("WebcamCapturerAdapter: TODO:
+    // implement Start"), so your camera is a tile on your own screen
+    // (bin/tuple-selfcam, mpv) that they see inside your screen share — and
+    // only there. So the Camera control goes with sharing: while you share it
+    // shows or hides the tile; when you're not sharing it offers to share
+    // your screen with the camera on it (cameraOffer), instead of opening a
+    // tile nobody else can see. The tile closes when the share stops.
+    toggleCamera() {
+        if (this.cameraOn)
+            this.setCamera(false);
+        else if (this.sharing)
+            this.setCamera(true);
+        else
+            this.offerCamera(true);
+    }
+
+    offerCamera(on) {
+        this.cameraOffer = on;
+        this._changed();
+    }
+
+    // Share your screen, and put the camera tile up once the share starts.
+    shareWithCamera() {
+        this.cameraOffer = false;
+        this._cameraWithShare = true;
+        if (this.sharing)
+            this.setCamera(true);
+        else
+            this.setSharing(true);
+        this._changed();
+    }
+
     setCamera(on) {
         if (on === this.cameraOn)
             return;
         if (on) {
             const cam = this.camera;
             this._startCamera(cam ? cam.dev : this._settings.get_string('camera-device'));
-            this.say(this.sharing
-                ? 'They see your camera through your screen share'
-                : 'Only you can see this until you share your screen', !this.sharing);
+            this.say('Your camera is on your shared screen');
         } else {
             this._cameraStopping = true;
             this._cameraProc?.kill();
@@ -1166,10 +1218,10 @@ export class Service {
     }
 
     _startCamera(dev) {
-        if (this.demo !== '')
-            return;
         this._cameraStopping = false;
-        const proc = new Proc([this.helper('tuple-selfcam'), String(dev || '')], {
+        // Demo: a test pattern, so the tile can be tried without a camera.
+        const source = this.demo !== '' ? '--test' : String(dev || '');
+        const proc = new Proc([this.helper('tuple-selfcam'), source], {
             onDone: p => {
                 this._procs.delete(p);
                 if (this._cameraProc === p)
@@ -1200,8 +1252,65 @@ export class Service {
         this._changed();
     }
 
-    toggleCamera() {
-        this.setCamera(!this.cameraOn);
+    // Keep the camera tile with the share: up once a share-with-camera has
+    // started, down when sharing stops (camera-follows-share).
+    _syncCameraWithShare() {
+        const sharing = this.sharing;
+        if (sharing && !this._wasSharing && this._cameraWithShare) {
+            this._cameraWithShare = false;
+            this.setCamera(true);
+        }
+        if (!sharing && this._wasSharing && this.cameraOn && this._settings.get_boolean('camera-follows-share'))
+            this.setCamera(false);
+        if (!this.inCall)
+            this.cameraOffer = false;
+        this._wasSharing = sharing;
+    }
+
+    // ── Power ─────────────────────────────────────────────────────────────
+    // Tuple decodes their video (and encodes your share) in software — libvpx
+    // VP8/VP9, no GPU path — so a call is CPU-bound. On "balanced" a hybrid
+    // CPU may run that on its slow cores; hold "performance" for the length of
+    // a call, through power-profiles-daemon's HoldProfile (released when the
+    // call ends, or by the daemon itself if the shell goes away).
+    _syncPowerHold() {
+        const want = this.inCall && this.demo === '' && this._settings.get_boolean('performance-during-calls');
+        if (want === this._powerWanted)
+            return;
+        this._powerWanted = want;
+        if (want && this._powerCookie === undefined) {
+            this._powerCookie = null;   // asked
+            this._powerCall('HoldProfile', new GLib.Variant('(sss)', ['performance', 'Tuple call', 'tuple-gnome']), result => {
+                const [cookie] = result?.deepUnpack() ?? [];
+                if (cookie === undefined) {
+                    this._powerCookie = undefined;
+                    return;
+                }
+                this._powerCookie = cookie;
+                if (!this._powerWanted)
+                    this._releasePower();
+            });
+        } else if (!want && this._powerCookie) {
+            this._releasePower();
+        }
+    }
+
+    _releasePower() {
+        const cookie = this._powerCookie;
+        this._powerCookie = undefined;
+        if (cookie)
+            this._powerCall('ReleaseProfile', new GLib.Variant('(u)', [cookie]), () => {});
+    }
+
+    _powerCall(method, args, cb) {
+        Gio.DBus.system.call('net.hadess.PowerProfiles', '/net/hadess/PowerProfiles', 'net.hadess.PowerProfiles',
+            method, args, null, Gio.DBusCallFlags.NONE, 5000, null, (bus, res) => {
+                let result = null;
+                try {
+                    result = bus.call_finish(res);
+                } catch {}   // no power-profiles-daemon: nothing to hold
+                cb(result);
+            });
     }
 
     // Remember the camera by name (/dev/videoN numbers move between boots)
@@ -1355,10 +1464,29 @@ export class Service {
         this.run(['settings'], {
             quiet: true,
             onDone: reply => {
-                if (reply.ok)
-                    this.tupleSettings = Model.parseSettings(reply.lines.join('\n'));
+                if (!reply.ok)
+                    return;
+                this.tupleSettings = Model.parseSettings(reply.lines.join('\n'));
+                this._keepOverlayOff();
             },
         });
+    }
+
+    // Tuple's annotation overlay needs a layer-shell, which GNOME doesn't
+    // have; without one it falls back to an opaque fullscreen window that
+    // blacks out the screen and takes every click for as long as you share.
+    // Keep it off (keep-overlay-off). Guests' drawings then don't show on
+    // your own screen; everything else about sharing works.
+    _keepOverlayOff() {
+        if (!this._settings.get_boolean('keep-overlay-off') || this.settingValue('overlay') !== '1')
+            return;
+        this.setTupleSetting('overlay', '0');
+        this.say("Turned off Tuple's drawing overlay: on GNOME it covers your whole screen while you share");
+    }
+
+    // windows.js saw the overlay anyway (and hid it).
+    overlayAppeared() {
+        this.refreshSettings();
     }
 
     setTupleSetting(name, value) {
@@ -1492,7 +1620,7 @@ export class Service {
             return;
         if (this.inCall && this._settings.get_boolean('perf-log') && now - (this._lastPerfAt ?? 0) >= 20000 && !this._perf) {
             this._lastPerfAt = now;
-            this._perf = new Proc([this.helper('tuple-perf'), '', this._host.windowSizes()], {
+            this._perf = new Proc([this.helper('tuple-perf'), '', this._host.windowSizes(), String(this.log.pid || '')], {
                 timeoutMs: 10000,
                 onDone: () => {
                     this._perf = null;
@@ -1620,6 +1748,8 @@ export class Service {
             pending: [...this.pending],
             demo: this.demo,
             message: this.lastError || this.actionStatus,
+            cameraOffer: this.cameraOffer,
+            performanceHeld: Boolean(this._powerCookie),
             text: this.statusText,
         });
     }

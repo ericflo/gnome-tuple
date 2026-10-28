@@ -16,7 +16,9 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -44,6 +46,14 @@ const DBUS_IFACE = `
 </node>`;
 
 const DIM = 150;
+
+// "<Super><Control>Escape" → "Super+Ctrl+Esc".
+function accelLabel(accel) {
+    if (!accel)
+        return 'The stop-sharing shortcut';
+    return accel.replace(/<(Control|Primary)>/g, 'Ctrl+').replace(/<([A-Za-z]+)>/g, '$1+')
+        .replace(/Escape$/, 'Esc').replace(/\+([a-z])$/, (_m, k) => `+${k.toUpperCase()}`);
+}
 
 // ── Small builders ───────────────────────────────────────────────────────
 
@@ -500,8 +510,21 @@ class TupleIndicator extends PanelMenu.Button {
         this._devices.add_child(this._deviceList);
         box.add_child(this._devices);
 
+        // Camera while you're not sharing: say what's possible, and offer it.
+        this._cameraOffer = vbox({style_class: 'tuple-notice'});
+        this._cameraOffer.add_child(label(
+            "Tuple for Linux can't send webcam video. Your camera can show up inside your screen share instead.",
+            {wrap: true}));
+        const offerButtons = hbox({style_class: 'tuple-field-row'});
+        this._offerShare = button({text: 'Share with camera', style: 'button default', expand: true,
+            onClick: () => s.shareWithCamera()});
+        offerButtons.add_child(this._offerShare);
+        offerButtons.add_child(button({text: 'Not now', onClick: () => s.offerCamera(false)}));
+        this._cameraOffer.add_child(offerButtons);
+        box.add_child(this._cameraOffer);
+
         this._cameraHint = label(
-            "Only you can see your camera. Tuple for Linux can't send video yet, so they'll see it when you share your screen.",
+            'Only you can see your camera until you share your screen. Drag it to move it, scroll to resize, q to close.',
             {style: 'tuple-caption', dim: true, wrap: true});
         box.add_child(this._cameraHint);
 
@@ -976,9 +999,13 @@ class TupleIndicator extends PanelMenu.Button {
             iconName: s.cameraOn ? 'camera-web-symbolic' : 'camera-disabled-symbolic',
             checked: s.cameraOn,
         });
+        this._cameraTile.face.accessible_name = s.cameraOn
+            ? 'Hide your camera from your screen share'
+            : 'Show your camera in your screen share';
         this._cameraTile.caret.visible = s.cameras.length > 0;
         this._setTile(this._linkTile, {visible: s.personalUrl !== ''});
         this._setTile(this._endTile, {busy: s.isPending('end')});
+        this._cameraOffer.visible = s.cameraOffer && !s.cameraOn;
         this._cameraHint.visible = s.cameraOn && !s.sharing;
     }
 
@@ -1101,11 +1128,10 @@ class TupleIndicator extends PanelMenu.Button {
         case 'share': s.setSharing(true); return 'ok';
         case 'unshare': s.setSharing(false); return 'ok';
         case 'toggleShare': s.toggleShare(); return 'ok';
-        case 'toggleCamera': {
-            const on = !s.cameraOn;
-            s.toggleCamera();
-            return on ? 'on' : 'off';
-        }
+        case 'toggleCamera': s.toggleCamera(); return s.cameraOffer ? 'offered' : 'ok';
+        case 'shareWithCamera': s.shareWithCamera(); return 'ok';
+        case 'stopSharing': s.stopSharing(); return 'ok';
+        case 'windows': return JSON.stringify(this._ext.windows(), null, 1);
         case 'end': s.endCall(); return 'ok';
         case 'answer': s.answer(); return 'ok';
         case 'decline': s.decline(); return 'ok';
@@ -1132,7 +1158,7 @@ class TupleIndicator extends PanelMenu.Button {
             this._sync();
             return result;
         }
-        case 'status': return s.statusJson();
+        case 'status': return JSON.stringify({...JSON.parse(s.statusJson()), menuOpen: this.menu.isOpen});
         default: return `unknown command “${name}”`;
         }
     }
@@ -1143,7 +1169,7 @@ class TupleIndicator extends PanelMenu.Button {
 export default class TupleExtension extends Extension {
     enable() {
         this._settings = this.getSettings();
-        this._stage = new WindowStage(this._settings);
+        this._stage = new WindowStage(this._settings, {onOverlay: () => this._overlayAppeared()});
         this._icon = new Gio.ThemedIcon({names: ['tuple', 'call-start-symbolic']});
         this._avatars = new Avatars(() => this._indicator?.refreshPeople());
         this._settings.connectObject('changed::show-avatars', () => this._indicator?.refreshPeople(), this);
@@ -1153,9 +1179,22 @@ export default class TupleExtension extends Extension {
 
         this._dbus = Gio.DBusExportedObject.wrapJSObject(DBUS_IFACE, this);
         this._dbus.export(Gio.DBus.session, DBUS_PATH);
+
+        // Shortcuts that work over anything — fullscreen windows, the lock of
+        // a modal grab, an overlay covering the screen: the menu, and the way
+        // out of a share.
+        this._shortcuts = {
+            'toggle-menu-shortcut': () => this._indicator?.menu.toggle(),
+            'stop-sharing-shortcut': () => this.service?.stopSharing(),
+        };
+        for (const [name, handler] of Object.entries(this._shortcuts))
+            Main.wm.addKeybinding(name, this._settings, Meta.KeyBindingFlags.IGNORE_AUTOREPEAT, Shell.ActionMode.ALL, handler);
     }
 
     disable() {
+        for (const name of Object.keys(this._shortcuts ?? {}))
+            Main.wm.removeKeybinding(name);
+        this._shortcuts = null;
         this._dbus?.unexport();
         this._dbus = null;
         this.service?.destroy();
@@ -1181,6 +1220,23 @@ export default class TupleExtension extends Extension {
         return this._avatars?.path(email) ?? null;
     }
 
+    // Tuple's overlay showed up (and windows.js hid it): say so, once a
+    // session, and make sure the setting behind it is off.
+    _overlayAppeared() {
+        this.service?.overlayAppeared();
+        if (this._toldOverlay)
+            return;
+        this._toldOverlay = true;
+        this._notify({
+            title: "Hid Tuple's drawing overlay",
+            body: `On GNOME it covers your whole screen while you share. Your share is unaffected. ${accelLabel(this._settings.get_strv('stop-sharing-shortcut')[0])} stops sharing.`,
+        });
+    }
+
+    windows() {
+        return this._stage?.describe() ?? [];
+    }
+
     // D-Bus: org.gnome.Shell.Extensions.Tuple.Call(name, argument) → result
     Call(name, argument) {
         try {
@@ -1204,6 +1260,8 @@ export default class TupleExtension extends Extension {
             },
             notify: opts => this._notify(opts),
             arrangeWindows: () => this._stage?.arrange(),
+            resetStage: () => this._stage?.resetStage(),
+            hideOverlay: () => this._stage?.hideOverlay() ?? false,
             focusWindow: role => this._stage?.focus(role) ?? false,
             windowSizes: () => this._stage?.sizes() ?? '',
         };

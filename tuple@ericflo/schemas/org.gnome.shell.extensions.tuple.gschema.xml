@@ -43,6 +43,26 @@
       <default>'medium'</default>
       <summary>Camera tile size (yours and theirs)</summary>
     </key>
+    <key name="camera-follows-share" type="b">
+      <default>true</default>
+      <summary>Turn the camera tile off when you stop sharing your screen (it's only seen through the share)</summary>
+    </key>
+    <key name="keep-overlay-off" type="b">
+      <default>true</default>
+      <summary>Keep Tuple's drawing overlay off: without a layer-shell (GNOME has none) it blacks out the screen while you share</summary>
+    </key>
+    <key name="performance-during-calls" type="b">
+      <default>true</default>
+      <summary>Use the Performance power mode during calls (Tuple decodes video in software)</summary>
+    </key>
+    <key name="toggle-menu-shortcut" type="as">
+      <default><![CDATA[['<Super><Control>t']]]></default>
+      <summary>Open or close the Tuple menu</summary>
+    </key>
+    <key name="stop-sharing-shortcut" type="as">
+      <default><![CDATA[['<Super><Control>Escape']]]></default>
+      <summary>Stop sharing your screen (works even when something covers the screen)</summary>
+    </key>
     <key name="camera-follows-call" type="b">
       <default>true</default>
       <summary>Turn the camera off when the call ends</summary>

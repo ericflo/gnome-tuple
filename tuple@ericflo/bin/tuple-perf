@@ -1,45 +1,64 @@
 #!/bin/bash
 # tuple-perf — one line of call performance, appended to a log.
 #
-# Video stutter on Linux can come from several places: Tuple decoding and
-# drawing, the compositor (and XWayland, for Tuple's X11 windows), or the
-# network/sender. The extension runs this every 20s during a call so there's
-# evidence to look at afterwards:
+# Video stutter can come from several places: Tuple decoding (libvpx
+# VP8/VP9, in software — this build has no GPU decoding) and drawing (its
+# video windows go through XWayland), the compositor, the power profile, or
+# the network/sender. The extension runs this every 20s during a call so
+# there's evidence to look at afterwards:
 #
-#   time  tuple=%cpu  xwayland=%cpu  shell=%cpu  selfcam=%cpu  screen=WxH  webcams=WxH
+#   time power=PROFILE tuple=%cpu [busiest threads] xwayland=%cpu shell=%cpu selfcam=%cpu  screen=WxH(…) webcams=WxH(…)
 #
-# CPU is percent of one core over a 2s window. Window sizes come from the
-# extension (Mutter knows them; nothing here can ask it).
-# Usage: tuple-perf [log-file] [window sizes]
+# CPU is percent of one core over a 2s window. The threads say which part
+# of Tuple is busy (decoding, drawing, the network). Window sizes come from
+# the extension (Mutter knows them; nothing here can ask it).
+# Usage: tuple-perf [log-file] [window sizes] [daemon pid]
 set -uo pipefail
 
 out="${1:-}"
 [ -n "$out" ] || out="${XDG_STATE_HOME:-$HOME/.local/state}/tuple-gnome/perf.log"
 sizes="${2:-}"
+daemon="${3:-}"
 mkdir -p "$(dirname "$out")"
 hz=$(getconf CLK_TCK)
 
-ticks() {  # utime+stime of a pid, or empty
-  [ -n "$1" ] && [ -r "/proc/$1/stat" ] || return 0
-  awk '{ sub(/^.*\) /, ""); print $12 + $13 }' "/proc/$1/stat"
+ticks() {  # utime+stime of /proc/PID or /proc/PID/task/TID, or empty
+  [[ $1 =~ ^/proc/[0-9]+(/task/[0-9]+)?$ ]] && [ -r "$1/stat" ] || return 0
+  awk '{ sub(/^.*\) /, ""); print $12 + $13 }' "$1/stat"
 }
 
+# The daemon's pid comes from its log; failing that, the oldest `tuple`.
 declare -A pid=(
-  [tuple]=$(pgrep -xo tuple)
+  [tuple]=${daemon:-$(pgrep -xo tuple)}
   [xwayland]=$(pgrep -xo Xwayland)
   [shell]=$(pgrep -xo gnome-shell)
   [selfcam]=$(pgrep -o -f 'title=tuple-selfcam')
 )
-declare -A t0
-for k in "${!pid[@]}"; do t0[$k]=$(ticks "${pid[$k]}"); done
+declare -A t0 th0
+for k in "${!pid[@]}"; do t0[$k]=$(ticks "/proc/${pid[$k]}"); done
+if [ -n "${pid[tuple]}" ]; then
+  for t in /proc/"${pid[tuple]}"/task/*; do th0[$t]=$(ticks "$t"); done
+fi
 sleep 2
-line="$(date +%FT%T)"
+
+power=$(gdbus call --system --dest net.hadess.PowerProfiles --object-path /net/hadess/PowerProfiles \
+  --method org.freedesktop.DBus.Properties.Get net.hadess.PowerProfiles ActiveProfile 2>/dev/null |
+  grep -oE "'[a-z-]+'" | tr -d "'")
+line="$(date +%FT%T) power=${power:--}"
 for k in tuple xwayland shell selfcam; do
-  t1=$(ticks "${pid[$k]}")
+  t1=$(ticks "/proc/${pid[$k]}")
   if [ -n "${t0[$k]}" ] && [ -n "$t1" ]; then
     line+=" $k=$(( (t1 - t0[$k]) * 100 / (2 * hz) ))%"
   else
     line+=" $k=-"
+  fi
+  if [ "$k" = tuple ] && [ -n "${pid[tuple]}" ]; then
+    busiest=$(for t in "${!th0[@]}"; do
+        t1=$(ticks "$t"); [ -n "$t1" ] || continue
+        d=$(( (t1 - th0[$t]) * 100 / (2 * hz) ))
+        [ "$d" -gt 0 ] && printf '%s %s\n' "$d" "$(tr ' ' '_' < "$t/comm")"
+      done | sort -rn | head -4 | awk '{printf "%s%s=%s%%", (NR>1?",":""), $2, $1}')
+    line+=" [${busiest}]"
   fi
 done
 line+=" ${sizes}"

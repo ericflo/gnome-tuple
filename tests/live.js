@@ -36,7 +36,7 @@ const host = {
         print(`[notify] ${title} — ${body}${actions.length ? ` [${actions.map(a => a.label).join(', ')}]` : ''}`);
         return {destroy() {}};
     },
-    arrangeWindows: () => {},
+    resetStage: () => {}, hideOverlay: () => false, arrangeWindows: () => {},
     focusWindow: () => false,
     windowSizes: () => '',
 };
