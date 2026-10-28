@@ -1,15 +1,12 @@
-// Run: node --test tests/
+// Run: node --test tests/*.test.mjs
+// The log tests come from benjaminsehl/omarchy-tuple's suite, which was
+// calibrated against real v2026_09_16.1 calls; the JSON fixtures follow the
+// v2026_10_23.0 CLI's output schemas (`tuple mcp` → tools/list).
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
-import vm from "node:vm"
+import * as M from "../tuple@ericflo/model.js"
 
-const src = readFileSync(new URL("../Model.js", import.meta.url), "utf8").replace(/^\.pragma library\s*/, "")
-const M = {}
-vm.runInNewContext(src + "\nObject.assign(out, {" +
-  [...src.matchAll(/^function (\w+)/gm)].map((m) => m[1]).join(",") + "})", { out: M })
-
-// Captured verbatim from the v2026_09_16.1 daemon.
+// Captured verbatim from the daemon (unchanged in v2026_10_23.0).
 const SETTINGS = `overlay | 1 | Show "overlay" annotation window when sharing screen (0|1)
 start-calls-muted | 0 | Start with microphone muted when joining a call (0|1)
 capture | auto | Screen capture mechanism (auto|x11|portal)
@@ -23,6 +20,25 @@ const LOG = `17:53:27.226|2464963|2464963|info|version v2026_09_16.1
 17:53:27.227|2464963|2464965|info|Signaler.cpp:137|signaler state changed: suspended -> disconnected
 gtk-update-icon-cache: No theme index file.
 `
+
+// `tuple state --format json` from v2026_10_23.0, signed out.
+const SIGNED_OUT = `{"in_call":false,"call":null,"user":{"id":0,"email":"","short_name":""},"contacts":{"total":0,"online":0,"busy":0,"favorites":{"total":0,"online":0,"online_names":[]}},"rooms":{"personal":0,"team":0,"occupied":0},"invites":0,"connection":{"websocket_state":"disconnected","is_internet_connected":true},"platform":"linux","app_version":"v2026_10_23.0","available_update_version":null,"see":{"call":"tuple call show"}}`
+
+const IN_CALL = JSON.stringify({
+  in_call: true,
+  call: {
+    call_id: "dbd433b7", muted: true, transcribing: false, active_room_slug: null,
+    participants: [
+      { id: 42, name: "Me Myself", email: "me@example.com", session_id: "s1", muted: true, connection_state: "connected" },
+      { id: 71792, name: "Alice Smith", email: "alice@example.com", session_id: "s2", muted: false, connection_state: "connected" }
+    ]
+  },
+  user: { id: 42, email: "me@example.com", short_name: "Me" },
+  contacts: { total: 3, online: 2, busy: 1, favorites: { total: 1, online: 1, online_names: ["Alice Smith"] } },
+  rooms: { personal: 1, team: 0, occupied: 0 }, invites: 0,
+  connection: { websocket_state: "connected", is_internet_connected: true },
+  platform: "linux", app_version: "v2026_10_23.0", available_update_version: null
+})
 
 test("parseSettings", () => {
   const s = M.parseSettings(SETTINGS)
@@ -40,11 +56,22 @@ test("parseSettings", () => {
 test("parseReply flags daemon errors", () => {
   assert.equal(M.parseReply("can't mute, not in a call\n").ok, false)
   assert.equal(M.parseReply("not logged in\n").ok, false)
-  assert.equal(M.parseReply("error: unknown command 'x'\n").message, "error: unknown command 'x'")
+  assert.equal(M.parseReply("error: unknown command 'x'\n").message, "unknown command 'x'")
   assert.equal(M.parseReply("already not in a call\n").ok, false)
   const ok = M.parseReply("joining call...\ncall connected\n")
   assert.equal(ok.ok, true)
   assert.equal(ok.message, "call connected")
+})
+
+test("parseReply: JSON errors, exit codes, and daemon log lines", () => {
+  const j = M.parseReply('{"error":"not signed in","error_code":401,"kind":"unauthorized"}\n', 1)
+  assert.equal(j.ok, false)
+  assert.equal(j.message, "Not signed in")
+  assert.equal(M.parseReply("Calling Alice (call x)...\n", 2).ok, false)
+  // `tuple stop` (captured from v2026_10_23.0).
+  const stop = M.parseReply("18:30:25.524|129749|129749|info|tuple is running, killing it...\nexiting\n18:30:25.526|129749|129749|info|tuple is no longer running\n", 0)
+  assert.equal(stop.ok, true)
+  assert.equal(stop.message, "tuple is no longer running")
 })
 
 test("login + personal url", () => {
@@ -62,21 +89,44 @@ test("call urls", () => {
   assert.equal(M.extractCallUrl("<https://tuple.app/c/x>"), "https://tuple.app/c/x")
 })
 
-test("contacts + call choices (format from binary strings)", () => {
-  const ls = `  101 Alice Smith <alice@x.com> [online] (favorite)\n  102 Bob <bob@x.com> [offline]\n  103 Carol <carol@x.com> [online]\n`
-  const c = M.parseContacts(ls)
-  assert.deepEqual([...c.map((x) => x.name)], ["Alice Smith", "Carol", "Bob"])
+test("parseSummary: signed out (real v2026_10_23.0 output)", () => {
+  const s = M.parseSummary(SIGNED_OUT)
+  assert.equal(s.signedIn, false)
+  assert.equal(s.inCall, false)
+  assert.equal(s.websocket, "disconnected")
+  assert.equal(s.version, "v2026_10_23.0")
+  assert.equal(M.parseSummary('{"error":"not signed in"}'), null)
+  assert.equal(M.parseSummary("garbage"), null)
+})
+
+test("parseSummary: in a call, yourself left out of the peers", () => {
+  const s = M.parseSummary(IN_CALL)
+  assert.equal(s.signedIn, true)
+  assert.equal(s.inCall, true)
+  assert.equal(s.muted, true)
+  assert.equal(s.callId, "dbd433b7")
+  assert.deepEqual(s.participants.map((p) => p.name), ["Alice Smith"])
+  assert.equal(s.counts.onlineFavorites, 1)
+})
+
+test("parseContactsJson: shape, presence, sort", () => {
+  const c = M.parseContactsJson(JSON.stringify({ contacts: [
+    { id: 102, email: "bob@x.com", full_name: "Bob", short_name: "Bob", kind: "teammate", favorited: false, recent: false, status: "offline", call: null },
+    { id: 101, email: "alice@x.com", full_name: "Alice Smith", short_name: "Alice", kind: "teammate", favorited: true, recent: true, status: "online", call: null },
+    { id: 103, email: "carol@x.com", full_name: "Carol", short_name: "Carol", kind: "teammate", favorited: false, recent: false, status: "busy", call: { id: "c1", participant_ids: [103], capacity: 2, sfu_backed: false } }
+  ] }))
+  assert.deepEqual(c.map((x) => x.name), ["Alice Smith", "Carol", "Bob"])
   assert.equal(c[0].favorite, true)
-  assert.equal(c[0].online, true)
+  assert.equal(c[0].id, "101")
+  assert.equal(c[1].online, true)
+  assert.equal(M.contactPresence(c[1]), "In a call")
   assert.equal(c[2].online, false)
-  const choices = M.parseCallChoices("  1) Alice Smith <alice@x.com>\n  2) Dan <dan@x.com>\nenter a number: ")
-  assert.equal(choices.length, 2)
-  assert.equal(M.choiceForContact(choices, c[0]).index, 1)
-  assert.equal(M.choiceForContact(choices, c[1]), null)
+  assert.equal(M.contactPresence(c[2]), "Offline")
+  assert.deepEqual(M.parseContactsJson("[]"), [])
+  assert.equal(M.parseContactsJson('{"error":"not signed in"}'), null)
   assert.equal(M.initials("Alice Smith"), "AS")
   assert.equal(M.presenceLabel("available"), "")
-  assert.equal(M.presenceLabel("in call"), "In a call")
-  assert.equal(M.presenceLabel("offline"), "Offline")
+  assert.equal(M.presenceLabel("busy"), "Busy")
 })
 
 test("reduceLog: real startup log", () => {
@@ -132,33 +182,72 @@ test("reduceReply", () => {
   assert.equal(s.sharing, false)
 })
 
+test("callState: summary first, then a ringing call from the log, then our own commands", () => {
+  const summary = M.parseSummary(IN_CALL)
+  const idle = M.parseSummary(SIGNED_OUT)
+  const ringing = { ...M.emptyState(), call: "incoming", incomingFrom: "Alice" }
+  assert.equal(M.callState(summary, M.emptyState(), {}), "active")
+  assert.equal(M.callState(summary, M.emptyState(), { ending: true }), "ending")
+  assert.equal(M.callState(idle, M.emptyState(), { ending: true }), "idle")
+  assert.equal(M.callState(idle, ringing, {}), "incoming")
+  assert.equal(M.callState(idle, M.emptyState(), { calling: true }), "connecting")
+  assert.equal(M.callState(summary, M.emptyState(), { calling: true }), "connecting")
+  assert.equal(M.callState(idle, M.emptyState(), { joining: true }), "connecting")
+  assert.equal(M.callState(summary, M.emptyState(), { joining: true }), "active")
+  // A "joining call" log line alone doesn't hold the UI on "Connecting…".
+  assert.equal(M.callState(idle, M.reduceLogText("18:00:00.000|1|1|info|joining call\n"), {}), "idle")
+  assert.equal(M.callState(null, M.emptyState(), {}), "idle")
+  assert.equal(M.resolveStaleIncoming(ringing).call, "idle")
+})
+
 test("statusLabel", () => {
-  const base = { daemon: true, loggedIn: true, call: "active", peers: ["Alice"], incomingFrom: "", signaler: "connected" }
+  const base = { daemon: true, loggedIn: true, call: "active", peers: ["Alice"], incomingFrom: "", websocket: "connected" }
   assert.equal(M.statusLabel(base), "Pairing with Alice")
   assert.equal(M.statusLabel({ ...base, daemon: false }), "Tuple is off")
   assert.equal(M.statusLabel({ ...base, call: "idle" }), "Ready to pair")
+  assert.equal(M.statusLabel({ ...base, call: "idle", websocket: "connecting" }), "Connecting to Tuple…")
+  assert.equal(M.statusLabel({ ...base, call: "idle", internet: false }), "No internet connection")
   assert.equal(M.statusLabel({ ...base, call: "incoming", incomingFrom: "Bob" }), "Bob is calling")
+  assert.equal(M.statusLabel({ ...base, call: "connecting", outgoing: true, calling: "David" }), "Calling David…")
 })
 
 test("large directories: featured + search stay bounded", () => {
   const rows = []
-  for (let i = 0; i < 8000; i++) rows.push(`  ${1000 + i} Person ${i} <person${i}@example.com> [offline]`)
-  rows.push("  9 Zed Fave <zed@example.com> [offline] (favorite)")
-  rows.push("  8 Amy Here <amy@example.com> [available]")
-  rows.push("  7 Uma Busy <uma@example.com> [unavailable]")
+  // Like a real company directory: Tuple knows presence for a few people
+  // (favourites, mostly) and reports nearly everyone else as "unknown".
+  for (let i = 0; i < 8000; i++) rows.push({ id: 1000 + i, email: `person${i}@example.com`, full_name: `Person ${i}`, short_name: `P${i}`, kind: "teammate", favorited: false, recent: false, status: i % 50 ? "unknown" : "offline", call: null })
+  rows.push({ id: 9, email: "zed@example.com", full_name: "Zed Fave", short_name: "Zed", kind: "teammate", favorited: true, recent: false, status: "offline", call: null })
+  rows.push({ id: 8, email: "amy@example.com", full_name: "Amy Here", short_name: "Amy", kind: "teammate", favorited: false, recent: false, status: "online", call: null })
+  rows.push({ id: 7, email: "uma@example.com", full_name: "Uma Busy", short_name: "Uma", kind: "teammate", favorited: false, recent: true, status: "offline", call: null })
+  const text = JSON.stringify({ contacts: rows })
   const t0 = Date.now()
-  const all = M.parseContacts(rows.join("\n"))
+  const all = M.parseContactsJson(text)
   assert.ok(Date.now() - t0 < 500, "parse 8k rows quickly")
   assert.equal(all.length, 8003)
-  const featured = M.featuredContacts(all, 30)
-  assert.deepEqual([...featured.map((c) => c.name)], ["Amy Here", "Zed Fave"])
+  // Favourites, then recents, then anyone available.
+  assert.deepEqual([...M.featuredContacts(all, 30).map((c) => c.name)], ["Zed Fave", "Uma Busy", "Amy Here"])
   assert.equal(M.searchContacts(all, "person 12", 30).length, 30)
   assert.equal(M.searchContacts(all, "uma", 30)[0].name, "Uma Busy")
-  assert.equal(M.searchContacts(all, "", 30).length, 2)
+  assert.equal(M.searchContacts(all, "", 30).length, 3)
   const counts = M.contactCounts(all)
   assert.equal(counts.favorites, 1)
   assert.equal(counts.online, 1)
-  assert.equal(all.find((c) => c.name === "Uma Busy").online, false)
+  assert.equal(M.isOnlineStatus("unknown"), false)
+  assert.equal(M.presenceLabel("unknown"), "")
+  assert.equal(M.isOnlineStatus("busy"), true)
+})
+
+test("rankContacts: Tuple's search results, best match first, nothing dropped", () => {
+  const results = M.parseContactsJson(JSON.stringify([
+    { id: 1, email: "abenson@x.com", full_name: "Alex Benson", favorited: true, status: "online" },
+    { id: 2, email: "ben@x.com", full_name: "Ben Baker", favorited: false, status: "unknown" },
+    { id: 3, email: "r.b@x.com", full_name: "Rob Bertram", favorited: false, status: "unknown" },
+    { id: 4, email: "bea@x.com", full_name: "Bea Noble", favorited: false, status: "unknown" }
+  ]))
+  // Word-start matches first (online favourites ahead, as Tuple sorts), then
+  // what Tuple matched that we wouldn't have.
+  assert.deepEqual(M.rankContacts(results, "ben", 30).map((c) => c.name), ["Alex Benson", "Ben Baker", "Bea Noble", "Rob Bertram"])
+  assert.equal(M.rankContacts(results, "ben", 2).length, 2)
 })
 
 // Shapes taken from a real v2026_09_16.1 call log (ids only).
@@ -218,7 +307,7 @@ test("audio context teardown and peer removal", () => {
   assert.equal(s.call, "idle")
 })
 
-// Today's log: `tuple call` to a favourite who never picked up (ids only).
+// `tuple call` to a favourite who never picked up (ids only).
 const UNANSWERED = `16:16:53.823|1120318|1120318|info|Engine.cpp:715|cli: call
 16:16:54.107|1120318|1120323|info|Caller.cpp:160|creating offer
 16:16:54.108|1120318|1120318|info|Engine.cpp:749|EngineEvent: OnPeerAdded (peer 162751 cursor_mode=0 persist_paint=false)
@@ -236,7 +325,6 @@ test("outgoing call rings (not 'pairing') and ends as unanswered", () => {
   assert.equal(s.call, "connecting")
   assert.equal(s.outgoing, true)
   assert.deepEqual([...s.peers], ["162751"])
-  assert.equal(M.statusLabel({ daemon: true, loggedIn: true, call: s.call, peers: ["David"], outgoing: s.outgoing }), "Calling David…")
   s = M.reduceLogText(UNANSWERED)
   assert.equal(s.call, "idle")
   assert.equal(s.unanswered, "162751")
@@ -272,6 +360,8 @@ test("parseCameras / resolveCamera / nextCamera", () => {
   assert.equal(M.resolveCamera([], "x"), null)
   assert.equal(M.nextCamera(cams, cams[2]).name, "Hardware ISP Camera")
   assert.equal(M.nextCamera(cams, cams[0]).name, "Opal C1")
+  // bin/tuple-cameras on this machine.
+  assert.deepEqual(M.parseCameras("/dev/video0  Logitech BRIO (usb-0000:00:0d.0-3):\n"), [{ dev: "/dev/video0", name: "Logitech BRIO" }])
 })
 
 test("parseMics drops monitors and names the built-in array", () => {

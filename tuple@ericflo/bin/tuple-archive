@@ -4,7 +4,7 @@
 # The daemon truncates its log on every start, and that log is the only record
 # of what a real call looked like. The panel runs this every 15s while Tuple is
 # on. Each daemon run gets its own file in
-# ~/.local/state/omarchy-tuple/logs/ (the last 20 runs are kept).
+# ~/.local/state/tuple-gnome/logs/ (the last 20 runs are kept).
 #
 # It copies only what's new since the last pass (a call's log can run to
 # megabytes), whole lines only, and blanks the auth token Tuple writes into
@@ -16,7 +16,7 @@ set -uo pipefail
 data="${1:-${XDG_DATA_HOME:-$HOME/.local/share}}"
 src=$(ls -t "$data"/tuple/*/log.txt 2>/dev/null | head -1)
 [ -n "$src" ] || exit 0
-dst="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-tuple/logs"
+dst="${XDG_STATE_HOME:-$HOME/.local/state}/tuple-gnome/logs"
 mkdir -p "$dst"
 
 pid=$(head -c 200 "$src" | head -1 | cut -d'|' -f2)

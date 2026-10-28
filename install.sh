@@ -1,41 +1,43 @@
 #!/bin/bash
-# Link this folder into the Omarchy shell plugin directory and add the widget
-# to the bar. Re-running is safe.
+# Install the Tuple extension for this user: link it into GNOME Shell's
+# extension directory, compile its settings schema, put tuple-shell in
+# ~/.local/bin, and enable it. Re-running is safe.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-id="sehl.tuple"
-dest="${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/$id"
+uuid="tuple@ericflo"
+ext="${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions"
+dest="$ext/$uuid"
 
-mkdir -p "$(dirname "$dest")"
+mkdir -p "$ext"
 if [[ -L $dest ]]; then
-  ln -sfn "$here" "$dest"
+  ln -sfn "$here/$uuid" "$dest"
 elif [[ -e $dest ]]; then
   echo "install: $dest exists and is not a symlink; leaving it alone" >&2
   exit 1
 else
-  ln -s "$here" "$dest"
+  ln -s "$here/$uuid" "$dest"
 fi
-echo "linked $dest -> $here"
+echo "linked $dest -> $here/$uuid"
 
-# Hyprland rules (peer webcams as a floating PiP, Tuple dialogs floated),
-# loaded the same way Omarchy loads its own toggles.
-toggles="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy/toggles/hypr"
-mkdir -p "$toggles"
-printf -- '-- Written by omarchy-tuple install.sh.\ndofile([[%s/hypr/tuple.lua]])\n' "$here" > "$toggles/tuple.lua"
-if command -v hyprctl >/dev/null; then
-  hyprctl reload >/dev/null
-  errors="$(hyprctl configerrors 2>/dev/null | sed '/^\s*$/d')"
-  if [[ -n $errors ]]; then
-    rm -f "$toggles/tuple.lua"; hyprctl reload >/dev/null
-    echo "install: Hyprland rejected hypr/tuple.lua, rules not installed:" >&2
-    echo "$errors" >&2
-  else
-    echo "installed Hyprland rules ($toggles/tuple.lua)"
+glib-compile-schemas "$here/$uuid/schemas"
+
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$here/$uuid/bin/tuple-shell" "$HOME/.local/bin/tuple-shell"
+echo "linked ~/.local/bin/tuple-shell"
+
+# Through the shell if it already has the extension loaded; otherwise add it
+# to the enabled list, which GNOME Shell reads at the next login (on Wayland
+# it only discovers new extensions when it starts).
+if gnome-extensions enable "$uuid" 2>/dev/null; then
+  echo "enabled $uuid"
+else
+  current=$(gsettings get org.gnome.shell enabled-extensions)
+  if [[ $current != *"'$uuid'"* ]]; then
+    updated=$(/usr/bin/python3 -I -c 'import ast, sys
+l = ast.literal_eval(sys.argv[1].removeprefix("@as "))
+print(repr(l + [sys.argv[2]]))' "$current" "$uuid")
+    gsettings set org.gnome.shell enabled-extensions "$updated"
   fi
+  echo "added $uuid to enabled-extensions — log out and back in to load it"
 fi
-
-omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-sleep 1
-omarchy plugin enable "$id" "${@:---section right}"
-echo "enabled $id"

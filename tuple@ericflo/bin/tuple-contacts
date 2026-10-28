@@ -1,0 +1,27 @@
+#!/bin/bash
+# tuple-contacts TUPLE [QUERY] — the slice of the Tuple directory the menu
+# shows, as one line of compact JSON.
+#
+# A company directory can be thousands of people, and
+# `tuple contacts list --format json` prints every one of them,
+# pretty-printed: ~1.7MB over ~78k lines for 8k people. Reading and parsing that inside GNOME
+# Shell stalled the whole desktop for ~300ms a time, so the filtering happens
+# here, in a process of its own:
+#
+#   no QUERY  favourites, people you've called recently, and anyone online
+#             or busy (Tuple reports most of a directory as "unknown")
+#   QUERY     Tuple's own search of names and emails (-q), the first 60
+#
+# Errors (e.g. not signed in) pass through on stderr with Tuple's exit code.
+set -euo pipefail
+
+tuple=${1:?usage: tuple-contacts TUPLE [QUERY]}
+query=${2:-}
+command -v jq >/dev/null || { echo '{"error":"jq is not installed (sudo pacman -S jq)"}' >&2; exit 127; }
+
+if [ -z "$query" ]; then
+  "$tuple" contacts list --format json |
+    jq -c '[.[] | select(.favorited or .recent or .status == "online" or .status == "busy")]'
+else
+  "$tuple" contacts list -q "$query" --format json | jq -c '.[:60]'
+fi

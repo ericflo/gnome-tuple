@@ -4,14 +4,16 @@
 # Tuple for Linux can't send webcam video yet (its WebcamCapturerAdapter is a
 # TODO in v2026_09_16.1, and it rejects ShareWebcamRequest), so this is a local
 # view: it reaches the other side only through your screen share.
-# bin/tuple-windows places it next to their webcam.
+# windows.js places it next to their webcam.
 #
-# Usage: tuple-selfcam [device]   (blank: first from omarchy-capture-webcam-list)
+# Usage: tuple-selfcam [device]   (blank: the first from tuple-cameras)
+# Exits 3 with no webcam, 127 without mpv.
 set -uo pipefail
 
 dev="${1:-}"
-[ -n "$dev" ] || dev=$(omarchy-capture-webcam-list 2>/dev/null | sed -n '1s/[[:space:]].*//p')
+[ -n "$dev" ] || dev=$("$(dirname "$0")/tuple-cameras" | sed -n '1s/[[:space:]].*//p')
 [ -n "$dev" ] || { echo 'No webcam found' >&2; exit 3; }
+command -v mpv >/dev/null || { echo "mpv not installed" >&2; exit 127; }
 
 # A tile is at most ~a quarter of the screen height, so 720p is plenty and
 # cheap; prefer MJPEG at that size — raw YUYV at 720p is often capped at 10fps

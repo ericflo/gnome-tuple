@@ -1,0 +1,34 @@
+#!/bin/bash
+# tuple-cameras — list webcams, one per line, the way Omarchy's
+# omarchy-capture-webcam-list does (model.js parseCameras reads it):
+#
+#   /dev/video0  Logitech BRIO (usb-0000:00:0d.0-3):
+#
+# v4l2-ctl groups a device's nodes under one heading. A UVC camera has a
+# capture node plus metadata (and sometimes IR) nodes, so each heading gets
+# its first node that captures a format mpv can display. An Intel IPU's ISYS
+# nodes claim YUYV too, but they only carry raw sensor data (the usable
+# camera, if any, is a libcamera/v4l2loopback relay with its own heading).
+set -uo pipefail
+command -v v4l2-ctl >/dev/null || exit 0
+
+heading=""
+done_heading=""
+tries=0
+v4l2-ctl --list-devices 2>/dev/null | while IFS= read -r line; do
+  if [[ $line != $'\t'* ]]; then
+    heading=$line; tries=0; continue
+  fi
+  dev=${line#$'\t'}
+  [[ $dev == /dev/video* ]] || continue
+  [ "$done_heading" = "$heading" ] && continue
+  # A raw sensor bridge lists dozens of nodes; don't probe them all.
+  (( tries++ < 4 )) || continue
+  name=$(cat "/sys/class/video4linux/${dev#/dev/}/name" 2>/dev/null)
+  [[ $name == *ISYS* || $name == *"IPU"*"CSI"* ]] && continue
+  fmts=$(v4l2-ctl -d "$dev" --list-formats 2>/dev/null) || continue
+  if grep -qE "'(MJPG|YUYV|NV12|YU12|H264|RGB3|BGR3|UYVY)'" <<<"$fmts"; then
+    printf '%s  %s\n' "$dev" "$heading"
+    done_heading=$heading
+  fi
+done

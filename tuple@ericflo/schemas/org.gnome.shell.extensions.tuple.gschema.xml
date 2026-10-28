@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <enum id="org.gnome.shell.extensions.tuple.CameraSize">
+    <value nick="small" value="0"/>
+    <value nick="medium" value="1"/>
+    <value nick="large" value="2"/>
+  </enum>
+  <schema id="org.gnome.shell.extensions.tuple" path="/org/gnome/shell/extensions/tuple/">
+    <key name="refresh-interval" type="i">
+      <range min="10" max="3600"/>
+      <default>60</default>
+      <summary>Contact refresh interval (seconds)</summary>
+    </key>
+    <key name="copy-link-on-new-call" type="b">
+      <default>true</default>
+      <summary>Copy the call link when starting a new call</summary>
+    </key>
+    <key name="notify-incoming" type="b">
+      <default>true</default>
+      <summary>Notify on incoming calls</summary>
+    </key>
+    <key name="notify-joins" type="b">
+      <default>true</default>
+      <summary>Notify when someone joins your call</summary>
+    </key>
+    <key name="show-avatars" type="b">
+      <default>true</default>
+      <summary>Show profile pictures (from Gravatar, as Tuple's own apps do)</summary>
+    </key>
+    <key name="tuple-command" type="s">
+      <default>'tuple'</default>
+      <summary>The tuple command (a name on PATH or ~/.local/bin, or a full path)</summary>
+    </key>
+    <key name="camera-device" type="s">
+      <default>''</default>
+      <summary>Camera (name or /dev path; blank: system default)</summary>
+    </key>
+    <key name="mic-device" type="s">
+      <default>''</default>
+      <summary>Microphone (PipeWire source name; blank: system default)</summary>
+    </key>
+    <key name="camera-size" enum="org.gnome.shell.extensions.tuple.CameraSize">
+      <default>'medium'</default>
+      <summary>Camera tile size (yours and theirs)</summary>
+    </key>
+    <key name="camera-follows-call" type="b">
+      <default>true</default>
+      <summary>Turn the camera off when the call ends</summary>
+    </key>
+    <key name="perf-log" type="b">
+      <default>true</default>
+      <summary>Log CPU and window sizes during calls (~/.local/state/tuple-gnome/perf.log)</summary>
+    </key>
+    <key name="archive-logs" type="b">
+      <default>true</default>
+      <summary>Keep copies of Tuple daemon logs (~/.local/state/tuple-gnome/logs)</summary>
+    </key>
+  </schema>
+</schemalist>

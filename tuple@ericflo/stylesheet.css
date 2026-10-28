@@ -1,0 +1,79 @@
+/* Layout on top of the shell's own .button, .icon-button, StEntry and
+ * .popup-menu-item styles, which already follow the light and dark styles.
+ * The few colours here read on both. */
+
+.tuple-mark { -tuple-urgent-color: #f66151; }
+.tuple-bar-mark { width: 16px; height: 16px; }
+.tuple-bar-mark.live,
+.tuple-bar-mark.ringing { color: #f66151; }
+.tuple-bar-mark.muted { color: #c01c28; }
+.tuple-hero-mark { width: 30px; height: 30px; }
+
+.tuple-menu-box { width: 25em; }
+
+.tuple-hero { spacing: 12px; padding: 2px 0; }
+.tuple-title { font-weight: bold; font-size: 1.15em; }
+.tuple-status { font-size: 0.9em; }
+.tuple-message { font-size: 0.9em; }
+.tuple-error { color: #e62d42; }
+.tuple-hint { text-align: center; padding: 6px 0; }
+.tuple-caption { font-size: 0.85em; }
+.tuple-heading { font-size: 0.8em; font-weight: bold; }
+
+.tuple-section { spacing: 8px; }
+.tuple-row { padding: 6px 8px; border-radius: 10px; }
+.tuple-row:focus,
+.tuple-contact:focus { box-shadow: inset 0 0 0 2px st-transparentize(-st-accent-color, 0.4); }
+.tuple-row-box { spacing: 10px; }
+.tuple-field-row { spacing: 8px; }
+.tuple-entry { border-radius: 10px; }
+.tuple-button-box { spacing: 6px; }
+.tuple-switch-button { padding: 2px; border-radius: 99px; }
+.tuple-switch-button:focus { box-shadow: inset 0 0 0 2px st-transparentize(-st-accent-color, 0.4); }
+
+.tuple-alert,
+.tuple-alert StIcon { color: #e62d42; }
+.tuple-big { padding: 10px 8px; border-radius: 12px; font-weight: normal; }
+
+/* Call controls. */
+.tuple-tiles { spacing: 6px; }
+.tuple-tile-group { spacing: 1px; }
+.tuple-tile { padding: 8px 2px; border-radius: 12px; font-weight: normal; min-width: 0; }
+.tuple-tile-group.split .tuple-tile { border-radius: 12px 0 0 12px; }
+.tuple-caret { padding: 0 3px; border-radius: 0 12px 12px 0; min-width: 0; }
+.tuple-tile-icon { icon-size: 18px; }
+.tuple-tile-label { font-size: 0.8em; padding-top: 4px; }
+.tuple-devices { spacing: 2px; padding-top: 2px; }
+
+.tuple-peers { spacing: 4px; }
+.tuple-person { spacing: 10px; padding: 2px 8px; }
+.tuple-their-screen { spacing: 10px; padding: 0 2px 0 8px; }
+
+/* People. */
+.tuple-pair-button { padding: 3px 16px; }
+.tuple-people-header { padding: 0 8px; }
+.tuple-people-scroll { max-height: 22em; }
+.tuple-people { spacing: 2px; }
+.tuple-contact { spacing: 10px; padding: 4px 6px 4px 8px; border-radius: 10px; }
+.tuple-row-actions { spacing: 2px; }
+.tuple-icon-button { padding: 5px; }
+.tuple-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background-color: rgba(127, 127, 127, 0.16);
+}
+.tuple-avatar.online { background-color: rgba(127, 127, 127, 0.3); }
+.tuple-initials { font-size: 0.72em; font-weight: bold; }
+.tuple-avatar-photo { border-radius: 13px; }
+.tuple-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background-color: #2ec27e;
+}
+
+.tuple-setting { spacing: 10px; }
+
+.tuple-footer { spacing: 4px; }
+.tuple-flat { background-color: transparent; padding: 4px 10px; font-weight: normal; }

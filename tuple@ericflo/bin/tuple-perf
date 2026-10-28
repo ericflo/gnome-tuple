@@ -2,18 +2,20 @@
 # tuple-perf — one line of call performance, appended to a log.
 #
 # Video stutter on Linux can come from several places: Tuple decoding and
-# drawing (it renders over X11, so every frame crosses into XWayland), the
-# compositor, or the network/sender. The panel runs this every 20s during a
-# call so there's evidence to look at afterwards:
+# drawing, the compositor (and XWayland, for Tuple's X11 windows), or the
+# network/sender. The extension runs this every 20s during a call so there's
+# evidence to look at afterwards:
 #
-#   time  tuple=%cpu  xwayland=%cpu  shell=%cpu  selfcam=%cpu  screen=WxH  webcam=WxH
+#   time  tuple=%cpu  xwayland=%cpu  shell=%cpu  selfcam=%cpu  screen=WxH  webcams=WxH
 #
-# CPU is percent of one core over a 2s window. Window sizes are logical
-# pixels (Tuple's X11 windows render at physical size, scale × that).
-# Usage: tuple-perf [log-file]
+# CPU is percent of one core over a 2s window. Window sizes come from the
+# extension (Mutter knows them; nothing here can ask it).
+# Usage: tuple-perf [log-file] [window sizes]
 set -uo pipefail
 
-out="${1:-${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-tuple/perf.log}"
+out="${1:-}"
+[ -n "$out" ] || out="${XDG_STATE_HOME:-$HOME/.local/state}/tuple-gnome/perf.log"
+sizes="${2:-}"
 mkdir -p "$(dirname "$out")"
 hz=$(getconf CLK_TCK)
 
@@ -25,7 +27,7 @@ ticks() {  # utime+stime of a pid, or empty
 declare -A pid=(
   [tuple]=$(pgrep -xo tuple)
   [xwayland]=$(pgrep -xo Xwayland)
-  [shell]=$(pgrep -o -f '^quickshell .*omarchy/shell')
+  [shell]=$(pgrep -xo gnome-shell)
   [selfcam]=$(pgrep -o -f 'title=tuple-selfcam')
 )
 declare -A t0
@@ -40,10 +42,7 @@ for k in tuple xwayland shell selfcam; do
     line+=" $k=-"
   fi
 done
-sizes=$(hyprctl clients -j 2>/dev/null | jq -r '
-  [.[] | select(.class == "Tuple" and (.title == "tuple-screen" or .title == "tuple-webcams"))
-       | "\(.title | sub("tuple-"; ""))=\(.size[0])x\(.size[1])\(if .fullscreen != 0 then "(full)" else "" end)"] | join(" ")')
-line+=" ${sizes:-}"
+line+=" ${sizes}"
 echo "$line" >> "$out"
 # Keep it from growing without bound.
 if [ "$(wc -l < "$out")" -gt 5000 ]; then tail -n 4000 "$out" > "$out.tmp" && mv "$out.tmp" "$out"; fi

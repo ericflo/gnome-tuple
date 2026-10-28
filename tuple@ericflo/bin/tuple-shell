@@ -1,0 +1,22 @@
+#!/bin/bash
+# tuple-shell — drive the Tuple top-bar extension from a terminal or a
+# keyboard shortcut (GNOME Settings → Keyboard → Custom Shortcuts).
+#
+#   tuple-shell toggle | refresh | on | off | newCall | joinClipboard | copyLink
+#   tuple-shell toggleMute | toggleShare | toggleCamera | end | answer | decline
+#   tuple-shell join https://tuple.app/c/xyz
+#   tuple-shell cameras | camera <name|number|default> | mics | mic <...>
+#   tuple-shell deviceMenu mic|camera
+#   tuple-shell status            # JSON: daemon, loggedIn, call, peers, muted, …
+#   tuple-shell demo call|idle|incoming|login|viewing|stopped|off
+set -euo pipefail
+
+[ $# -ge 1 ] || { sed -n '2,12s/^# \{0,1\}//p' "$0"; exit 2; }
+out=$(gdbus call --session --dest org.gnome.Shell \
+  --object-path /org/gnome/Shell/Extensions/Tuple \
+  --method org.gnome.Shell.Extensions.Tuple.Call "$1" "${2:-}") || {
+  echo "tuple-shell: is the Tuple extension enabled? (gnome-extensions enable tuple@ericflo)" >&2
+  exit 1
+}
+# gdbus prints a GVariant tuple: ('result',). Unwrap it.
+/usr/bin/python3 -I -c 'import ast, sys; print(ast.literal_eval(sys.argv[1])[0])' "$out"

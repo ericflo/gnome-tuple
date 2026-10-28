@@ -1,319 +1,218 @@
-# Tuple for Omarchy
+# Tuple for GNOME
 
-A native [Omarchy](https://omarchy.org) bar widget and panel for
-[Tuple's Linux client](https://tuple.app/linux/) (alpha, v2026_09_16.1). Tuple
-for Linux is a command-line tool; this gives it a home in your bar. It's built
-with the same Quickshell UI kit as Omarchy's own Tailscale, Bluetooth and Audio
-panels, so it picks up your theme, fonts, borders and keyboard conventions.
+A top-bar indicator and menu for [Tuple's Linux client](https://tuple.app/linux/)
+on GNOME Shell 51. Tuple for Linux is a command-line tool; this gives it a
+home in your top bar.
+
+It's a fork and port of Benjamin Sehl's
+[omarchy-tuple](https://github.com/benjaminsehl/omarchy-tuple), a plugin for
+Omarchy's Quickshell bar on Hyprland. The port keeps its log parser, design
+rules and helper scripts, and replaces the Omarchy/Hyprland side with GNOME
+Shell's own. It also targets the newer **v2026_10_23.0** client, whose CLI
+changed a lot (see below).
 
 <table>
   <tr>
-    <td><img src="docs/screenshots/idle.png" width="385" alt="Ready to pair: one field to start or join a call, then available teammates"></td>
-    <td><img src="docs/screenshots/call.png" width="385" alt="In a call: mute, share, camera, copy link and end"></td>
+    <td><img src="docs/screenshots/idle.png" width="270" alt="Ready to pair: one field to start or join a call, then your people"></td>
+    <td><img src="docs/screenshots/call.png" width="270" alt="In a call: mute, share, camera, copy link and end"></td>
+    <td><img src="docs/screenshots/incoming.png" width="270" alt="An incoming call with Answer and Decline"></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Ready to pair.</b> One field starts or joins a call. Teammates are listed available-first, with presence shown once.</sub></td>
-    <td align="center"><sub><b>In a call.</b> The controls show state (Muted, Sharing), and the bar icon turns the active colour.</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/incoming.png" width="385" alt="Incoming call with Answer and Decline"></td>
-    <td><img src="docs/screenshots/login.png" width="385" alt="Browser login with an authorization code field"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Incoming call.</b> The bar icon pulses and you get a desktop notification.</sub></td>
-    <td align="center"><sub><b>Log in.</b> Login continues in your browser; paste the code back here.</sub></td>
+    <td align="center"><sub><b>Ready to pair.</b> One field starts or joins a call.</sub></td>
+    <td align="center"><sub><b>In a call.</b> The controls show their state.</sub></td>
+    <td align="center"><sub><b>Ringing.</b> Who's calling, and Answer.</sub></td>
   </tr>
 </table>
 
-<sub>Screenshots use the built-in demo data (`omarchy-shell sehl.tuple demo <state>`) on a dark Omarchy theme.</sub>
+<sub>Screenshots use the built-in demo data (`tuple-shell demo <state>`).</sub>
 
 ## What you get
 
-- **Bar icon:** Tuple's mark drawn in theme colours. It is dimmed with a slash
-  when Tuple is off, shows a red badge when you're logged out, turns the
-  "active" colour during a call (darker when muted), gets a dot while you share
-  your screen, and pulses on an incoming call.
-- **Panel:**
+- **Top-bar mark:** Tuple's two squares in the panel colour. It's dimmed with a
+  slash when Tuple is off, gets a red dot when you're logged out, turns red
+  during a call (darker red when muted), gets a dot while you share, and
+  pulses while a call rings.
+  - Left click opens the menu.
+  - Right click mutes or unmutes in a call, or answers a ringing call.
+  - Middle click shares or unshares in a call, or refreshes otherwise.
+- **Menu:**
   - an on/off switch for the daemon
-  - browser login with an auth-code field
-  - new call (copies your link)
-  - join a call from a pasted link or straight from the clipboard
-  - in-call controls: mute, share, camera, copy link, end
-  - who's in the call and who's sharing
-  - favourites and available teammates, with search across the whole org
-    directory, a ★ toggle, and one-click calling
-  - all `tuple settings`
-  - a shortcut to Tuple's own window, and log out
-- **Notifications:** you get a desktop notification for incoming calls.
-- **Depth, if your theme asks for it.** Themes that ship a `[material]`
-  section in `shell.toml` (Rams does) turn the call controls and buttons
-  into keys: they stand on a short lip and sink when pressed, and mute,
-  share and camera latch down while on. Join turns into an orange key
-  once a link is pasted, and the panel casts a soft shadow. Other themes
-  keep the flat look. The keys are documented in `Material.qml`;
-  `KeyFace.qml` and `CardShadow.qml` can be copied into other plugins.
+  - browser login with an authorization-code field
+  - one field that starts a new call (and copies its link) or joins a pasted
+    link; a link on the clipboard is filled in for you
+  - in-call controls: mute, share, camera, copy link, end. The Mic and Camera
+    tiles have a ▾ that picks the device.
+  - who's in the call, and a "Their screen" row (View, and a Control switch
+    for draw vs. drive)
+  - people: favourites, then recent, then available, with search across the
+    whole directory, a ★ toggle, and one-click calling for anyone online
+  - all of `tuple settings`
+  - you (picture and name) with Log out; Tuple's own window and Preferences
+- **Profile pictures** for people in the list, in your call, ringing you,
+  and in their notifications, with initials for anyone without one. They come
+  from Gravatar, which is where Tuple's own `avatar_url` fields point: the
+  address is the MD5 of the email, so Gravatar sees those hashes, as it does
+  with Tuple's own apps. Only people the menu shows are fetched, a few at a
+  time, in the background. They're cached in `~/.cache/tuple-gnome/avatars`
+  for a week (a "no picture" answer for a day). Turn them off in Preferences.
+- **Notifications** (GNOME's own, with buttons): incoming call
+  (Answer/Decline), join request (Show), someone joined, "everyone left"
+  (End call), and no answer.
+- **Window placement** (Mutter instead of `hyprctl`): Tuple's prompts are
+  centred, and incoming-call and join-request prompts stay on top. Their webcam
+  and your camera tile sit as equal squares in the bottom-right corner, on
+  every workspace, without taking focus.
+- **Keys in the menu:** arrows and Tab move between controls. The letter
+  shortcuts work when you're not typing in a field:
+  - `m` mute, `s` share, `v` camera
+  - `e` end or decline, `a` answer
+  - `n` new call, `c` copy link, `i` join field, `/` search
+  - `f` favourite the focused person
+  - `o` on/off, `r` refresh
+  - `M` / `V` choose a mic / camera
+- **`tuple-shell`** drives it from a terminal or a GNOME custom shortcut:
 
-## Webcams
+  ```bash
+  tuple-shell toggle | toggleMute | toggleShare | toggleCamera | end | answer | newCall | joinClipboard | copyLink | on | off
+  tuple-shell join https://tuple.app/c/xyz
+  tuple-shell cameras | camera <name|number|default> | mics | mic <...> | deviceMenu mic|camera
+  tuple-shell status          # JSON: daemon, loggedIn, call, peers, muted, sharing, …
+  tuple-shell demo call       # canned states: call | idle | viewing | incoming | login | stopped | off
+  ```
 
-- **The camera stage.** Their webcam and your camera sit together as equal
-  squares in the bottom-right corner, yours on the right and mirrored. They
-  stay on every workspace and never take focus. `cameraSize`
-  (`small`/`medium`/`large`) sets the tile size for both.
-- **How it works.** Tuple draws all its windows over X11 with class `Tuple`
-  and no title. Each window's `WM_CLASS` instance names its role, though
-  (`tuple-webcams`, `tuple-screen`, `tuple-join-request`, …).
-  `bin/tuple-windows` copies that role into the window title, then floats
-  and centres Tuple's prompts and lays out the stage. The panel runs it
-  whenever Tuple logs `map window:`/`unmap window:` or your camera turns on
-  or off. `hypr/tuple.lua` makes Tuple's windows fully opaque, because
-  Omarchy's default translucency doesn't belong on video.
-- **Your camera can't reach them on its own.** In v2026_09_16.1, Tuple for
-  Linux can't send webcam video: `WebcamCapturerAdapter: TODO: implement
-  Start`, and it rejects `ShareWebcamRequest`. Your tile
-  (`bin/tuple-selfcam`) is a local view that reaches them only through your
-  screen share. The panel says so while the camera is on and you aren't
-  sharing.
-  - **Choosing a camera:** the Camera button is a split button. The main part
-    turns your tile on or off, and the caret (or `Shift+V`) opens a menu:
-    **System default** (the first camera, named in the menu), then each
-    camera. A chosen camera is saved by name, since `/dev/videoN` numbers
-    change between boots. If it isn't plugged in, the default is used.
-  - The tile uses 720p, and MJPEG when the camera offers it, because raw 720p
-    over USB is often capped at 10fps.
-
-## Their screen
-
-When they share, the panel shows a **Their screen** row:
-
-- **View** brings Tuple's screen window forward.
-- **Control** switches between drawing on their screen and driving it
-  (Tuple's `guest-mode` setting: `annotation` or `control`).
-
-When someone asks to join your call, you get a desktop notification, and
-Tuple's prompt is centred and focused.
-
-## Notifications Tuple doesn't post yet
-
-Tuple's own toasts for these are stubs on Linux (`TODO: implement …` in the
-log), so the panel posts them instead:
-
-- **Join requests:** critical, with a **Show** button that focuses Tuple's
-  prompt.
-- **Someone joined:** a 4-second toast (`notifyJoins`).
-- **Everyone left:** your link call stays open after the last person leaves.
-  About 15s later you get "Everyone left" with an **End call** button.
-
-## Reliability
-
-- **No stuck buttons:** every `tuple` command has a time limit (20s for most,
-  45s for `ls`/`settings`/`on`/`off`, 90s for login, 120s for `call`). A
-  wedged daemon shows an error and frees the button.
-- **No leaked helpers:** the log follower and the mic router exit together
-  with their child processes (`tail --pid`, and a process substitution with
-  an exit trap) instead of leaving them orphaned.
-- **Ending is immediate:** a call counts as over as soon as Tuple logs
-  `invalidating call`, without waiting for the grace period.
-- **Less noise:** while someone shares, Tuple logs every move of their cursor
-  (about 99% of a call's log). The follower drops those lines before they
-  reach QML.
-- **Log archive:** only new, complete lines are copied, with an offset kept
-  per file. Tuple's auth token is redacted on the way.
-- **Throttled refresh:** opening the panel refreshes at most every 15s.
-  `r`, middle-click and IPC `refresh` always force a refresh.
-
-## Performance notes
-
-Tuple renders over X11, so every frame of their screen and webcam crosses into
-XWayland. Video translucency is off for Tuple's windows. During calls,
-`bin/tuple-perf` appends a sample every 20s to
-`~/.local/state/omarchy-tuple/perf.log`: CPU for Tuple, XWayland, the shell
-and your camera tile, plus the size of their screen and webcam windows. If
-video stutters, that log shows where the time goes. Turn it off with
-`perfLog`.
-
-## Microphone
-
-The Mic button is a split button too. The main part mutes and unmutes, and the
-caret (or `Shift+M`) picks the input: **System default** (PipeWire's default
-source, named in the menu) or a specific mic. Tuple for Linux has no input
-setting and records from the default source, so a specific mic is applied by
-moving Tuple's own recording stream to it (`bin/tuple-mic-route`, via
-`pactl move-source-output`) for as long as the call lasts. The system default
-isn't changed. Saved as `micDevice`; blank means system default.
+  For a shortcut, go to Settings → Keyboard → Custom Shortcuts and add, e.g.,
+  `tuple-shell toggleMute` on Super+Ctrl+M.
 
 ## Requirements
 
-- Omarchy with the Quickshell-based shell (`omarchy-shell`)
-- The Tuple CLI from [tuple.app/linux](https://tuple.app/linux/) on your
-  `PATH`; `~/.local/bin` and `~/bin` are checked too
-- `socat`, `jq`, `hyprctl`, `wl-copy` and `notify-send`
-- For the camera overlay: `mpv` and `v4l2-ctl`. For mic selection: `pactl`. Omarchy ships these.
+- GNOME Shell 51 (Wayland or X11). Other versions aren't tested, and
+  `metadata.json` says so.
+- The Tuple CLI from [tuple.app/linux](https://tuple.app/linux/) (tested
+  with v2026_10_23.0), in `~/.local/bin` or `~/bin` or on `PATH` (or set its
+  path in Preferences), and a Tuple account
+- `jq`: the people list is filtered with it, outside the shell
+- Optional:
+  - `pactl` (PipeWire/PulseAudio) for choosing a mic
+  - `v4l2-ctl` (v4l-utils) for the camera list
+  - `mpv` for your camera tile
+
+  Everything else works without them.
 
 ## Install
 
 ```bash
-git clone https://github.com/benjaminsehl/omarchy-tuple.git ~/Code/omarchy-tuple
-cd ~/Code/omarchy-tuple
-./install.sh            # symlinks into ~/.config/omarchy/plugins/sehl.tuple, adds it to the bar,
-                        # and loads hypr/tuple.lua via ~/.local/state/omarchy/toggles/hypr/tuple.lua
-./uninstall.sh          # undoes all three
+git clone https://github.com/ericflo/gnome-tuple.git ~/Projects/gnome-tuple
+cd ~/Projects/gnome-tuple
+./install.sh      # links tuple@ericflo into ~/.local/share/gnome-shell/extensions,
+                  # compiles the schema, links tuple-shell into ~/.local/bin, enables it
+./uninstall.sh    # undoes all of that
 ```
 
-Pass a placement to `install.sh`, e.g. `./install.sh --section right --before omarchy.agents`.
+GNOME Shell on Wayland only discovers new extensions when it starts. After the
+first install, or after changing the code, log out and back in. Then click
+the Tuple mark, switch Tuple on, and choose **Log in**.
 
-The shell's plugin watcher doesn't follow symlinks. After editing, run
-`./install.sh` again: re-creating the link triggers a reload. If the IPC
-functions seem stale, the old handler kept the target; run `omarchy restart shell`.
+## How the v2026_10_23.0 client differs from what omarchy-tuple targeted
 
-## Use
+Tuple replaced the original Linux commands with its cross-platform CLI.
 
-| Bar | Action |
-|---|---|
-| left click | open the panel |
-| right click | in a call: mute/unmute · ringing: answer |
-| middle click | in a call: share/unshare · otherwise: refresh |
+- **Live state:** `tuple state follow --format json` streams a summary
+  whenever it changes. It covers whether you're signed in, whether you're in a
+  call and with whom, mute, and connection health. It's the main feed now, so
+  mute is no longer guessed from replies.
+- **Renamed commands:**
 
-In the panel, `j`/`k` or the arrow keys move, and `enter`/`space` activates the
-selected row. Other keys:
+  | Before | Now |
+  | --- | --- |
+  | `on` / `off` | `start` / `stop` |
+  | `ls` | `contacts list --format json` |
+  | `call` (interactive prompt) | `call start <person>` (any contact, not just favourites; exits 0 when answered, 2 when not) |
+  | `join` / `end` | `call join` / `call leave` |
+  | `mute` | `call mute` / `call unmute` |
+  | — | `call accept` (answers without Tuple's window) |
 
-| Key | Action |
-|---|---|
-| `m` | mute |
-| `s` | share |
-| `v` | camera overlay |
-| `e` | end or decline |
-| `a` | answer |
-| `n` | new call |
-| `i` | join field |
-| `c` | copy call link |
-| `/` | search people |
-| `f` | favourite the selected person |
-| `o` | daemon on/off |
-| `r` | refresh |
-| `tab` | next panel |
-| `esc` | close |
+  `new`, `share`, `unshare`, `ui`, `settings` and `set` still work but are
+  deprecated.
+- **Socket:** the daemon listens on `$XDG_RUNTIME_DIR/tuple-0` instead of
+  `@tuple-daemon`, and still starts itself for almost any command. So the
+  extension checks `/proc/net/unix` and only follows state while the daemon is
+  up. Otherwise "off" wouldn't stay off.
+- **Daemon log:** `~/.local/share/tuple/0/log.txt` keeps its format. The
+  original's log reducer (`model.js`) still supplies what the summary lacks: a
+  call ringing in, your screen share, their screen and webcam, and join
+  requests.
 
-### IPC and keybindings
+- **Big directories:** `tuple contacts list --format json` prints the whole
+  company directory (~1.7MB for 8k people), and most of it reports presence as
+  "unknown". The extension never parses that in the shell, because doing so
+  stalled the desktop. `bin/tuple-contacts` filters it to favourites, recents
+  and whoever's online, and search uses Tuple's own `contacts list -q`.
 
-```bash
-omarchy-shell sehl.tuple toggle | toggleMute | toggleShare | toggleCamera | end | newCall | joinClipboard | copyLink | on | off
-omarchy-shell sehl.tuple join https://tuple.app/c/xyz
-omarchy-shell sehl.tuple cameras       # list cameras; camera <name|number|default> picks one
-omarchy-shell sehl.tuple mics          # list mics;    mic <name|number|default> picks one
-omarchy-shell sehl.tuple deviceMenu mic   # open the panel with the mic (or camera) menu
-omarchy-shell sehl.tuple status        # JSON: daemon, loggedIn, call, peers, muted, sharing, …
-omarchy-shell sehl.tuple demo call     # canned UI states: call | idle | incoming | login | off (back to live)
-```
+## Known gaps
 
-Example Hyprland bindings (not installed for you), in `~/.config/hypr/bindings.lua`:
+- **Not yet seen live:** these work against a real account and directory:
+  - signing in
+  - on/off
+  - the people list and search
+  - profile pictures
 
-```lua
-o.bind("SUPER + CTRL + T", "Tuple panel", "omarchy-shell sehl.tuple toggle")
-o.bind("SUPER + CTRL + M", "Tuple mute", "omarchy-shell sehl.tuple toggleMute")
-```
+  These are built from the CLI's published output schemas (`tuple mcp` →
+  `tools/list`) and the original's call logs, but haven't been seen in a real
+  call:
+  - a ringing incoming call
+  - screen sharing and their webcam
+  - where Tuple's windows land
+  - mic routing
 
-## How the Tuple Linux client works
-
-These findings come from capturing traffic on the CLI's socket and from the
-binary's strings. They are the basis of `Model.js`.
-
-- **Thin CLI:** `tuple` is one static binary. Each invocation is a thin
-  client: it connects to the **abstract unix socket `@tuple-daemon`**, sends
-  its argv framed as `u64 len, u64 argc, "arg\0arg\0…"`, forwards stdin, and
-  prints the plain text the daemon streams back until EOF.
-- **Auto-start:** any command, even `tuple help`, spawns the daemon if none is
-  listening. That's why the widget checks `/proc/net/unix` for
-  `@tuple-daemon` and never runs a command while the daemon is off.
-- **Truncated replies:** the daemon writes replies with non-blocking sends and
-  drops the rest on `EAGAIN` (`write to deferred ls pipe failed, error=11`).
-  The stock CLI drains too slowly, so `tuple ls` returns only ~71 of ~7,800
-  people. `bin/tuple-request` speaks the socket protocol through `socat` and
-  gets everything; the widget uses it for `ls` and `settings`.
-- **No status API:** there is no status or JSON command. Live state comes from
-  the daemon log at `~/.local/share/tuple/<n>/log.txt`, which is truncated on
-  every start and formatted `time|pid|tid|level|[File.cpp:N|]message`. The
-  widget tails it and folds in these messages:
-  - `signaler state changed: A -> B`
-  - `received incoming call: X`
-  - `peer joined call: X` and `peer left call: X`
-  - `call connected`
-  - `EngineEvent: OnPeerAdded/OnPeerRemoved (peer <contact id> …)`, mapped to
-    names from `ls`
-  - `OnVideoCapturerDesktop Start/Stop` (your screen share)
-  - `webcam: added feed` and `WebcamReceivingChange` (their webcam)
-  - `cli: end`, then `call ended`, a remote hang-up, or the call's audio
-    context (`ContextState: TERMINATED`)
-  - **Log replays:** on a shell restart the log is replayed without the
-    commands' replies, so `cli: end` resolves to idle once the log moves 3s
-    past it.
-- **Log archive:** the log is truncated whenever the daemon restarts. The
-  widget keeps a rolling copy of the last 20 runs in
-  `~/.local/state/omarchy-tuple/logs/`, which is what the parser is
-  calibrated against.
-- **Command output:**
-  - `tuple ls` prints `  ID Name <email> [available|unavailable|in call|offline]( (favorite))`.
-  - `tuple call` prints the online favourites as `  N) Name <email>` and reads
-    the chosen number from stdin. The panel answers that prompt for the person
-    you clicked.
-  - `tuple new` prints `personal url: https://tuple.app/c/…`.
-  - `tuple settings` prints `name | value | description (a|b)`.
-- **Call links:** `join` only accepts `https://tuple.app/c/…` or
-  `https://production.tuple.app/c/…` links.
-- **Tuple's own window:** `tuple ui` opens an X11 window that only shows a few
-  lines of status text. It's the only place to accept an incoming call, so the
-  Answer button opens it.
-
-## Known gaps (alpha client)
-
-- **Mute state:** mute is never logged. The widget tracks it from its own
-  `mute`/`unmute` replies, the `start-calls-muted` setting, and the call
-  starting. If you mute from a terminal, the widget won't know.
-- **Partly verified:** call state is calibrated against one real call (peers,
-  screen share, their webcam, ending). Answering an incoming call, the camera
-  stage with a real peer webcam, the Their screen row and mic routing haven't
-  been seen live yet. `omarchy-shell sehl.tuple
-  status` shows what the widget currently believes.
-- **Calling restrictions:** `tuple call` only offers online favourites. The
-  call button works for anyone who's online: for someone who isn't a
-  favourite, it stars them first, and the tooltip says so. Clicking the row
-  itself only rings favourites, so a stray click can't ring someone new.
-- **Ringing:** `tuple call` adds the callee as a peer before they answer. The
-  widget shows "Calling X…" until `call connected` (or the call's audio
-  context) appears. If nobody answers in ~25s, the engine logs
-  `OnPeerRemoved (… reason=timeout)`, and the widget tells you they didn't
-  answer. A call that's answered has only been seen through call links. If a
-  direct call doesn't connect, use **New call** and send the link.
+  `tuple-shell status` shows what the extension currently believes.
+- **Their screen on GNOME:** guests can watch but not drive your screen.
+  That's Tuple's limitation on GNOME/KDE Wayland, not this extension's.
+- **No webcam sending or input selection yet:** Tuple for Linux can't send
+  your webcam or choose a mic. As in the original, your camera is a local tile
+  they see through your screen share, and a chosen mic is applied by moving
+  Tuple's recording stream (`bin/tuple-mic-route`).
+- **Decline:** Tuple has no decline command, so Decline runs `call leave`.
 
 ## Develop
 
 ```bash
-node --test tests/*.test.mjs   # Model.js parsers + log reducer
-omarchy plugin validate .
+node --test tests/*.test.mjs               # model.js: parsers + log reducer
+gjs -m tests/live.js status|watch|on|off|contacts   # service.js against the real daemon, no shell needed
+gjs -m tests/lag.js [query|--idle 60]      # main-thread cost of a refresh, a search, or idling
+gjs -m tests/shell-lag.js 150              # stalls in the running GNOME Shell
+gjs -m tests/avatars.js                    # fetch your people's pictures into a throwaway cache
+tests/headless.sh /tmp/shots [dark|light]  # a throwaway headless GNOME Shell: screenshots of every demo state
+tests/headless.sh --clicks                 # …and real pointer clicks on its switches
 ```
 
-Files:
+The headless runs have their own D-Bus session, dconf, XDG directories and
+runtime directory, so they don't touch your desktop.
 
-- `Model.js`: pure parsing and the state reducer; no QML.
-- `Service.qml`: the daemon probe, log follower, command runner and camera
-  overlay.
-- `Panel.qml`: the bar button and panel UI.
-- `TupleIcon.qml`: the logo.
-- `bin/tuple-request`: talks to the daemon socket directly, for complete
-  replies and without starting the daemon.
-- `bin/tuple-windows`: names Tuple's X11 windows, centres its prompts, and
-  lays out the camera stage.
-- `bin/tuple-selfcam`: your camera as a square, mirrored tile.
-- `bin/tuple-mic-route`: keeps Tuple's recording stream on your chosen mic.
-- `bin/tuple-perf`: one line of call performance for `perf.log`.
-- `DeviceMenu.qml`: the Mic/Camera split-button menu.
-- `hypr/tuple.lua`: Hyprland window rules.
-- `docs/screenshots/`: screenshots for this README, captured with `demo` mode.
+Files in `tuple@ericflo/`:
 
-The panel follows a few design rules:
+- `model.js`: pure parsing and the state reducer; no GNOME APIs. Adapted
+  from the original's `Model.js`.
+- `service.js`: the daemon probe, state and log followers, and command
+  runner. Gio/GLib only.
+- `extension.js`: the indicator, menu, notifications, clipboard and D-Bus
+  interface.
+- `windows.js`: placement of Tuple's windows and the camera stage.
+- `avatars.js`: profile pictures (Gravatar, async fetch and disk cache).
+- `prefs.js`, `schemas/`: preferences.
+- `bin/`:
+  - `tuple-selfcam`: your camera tile
+  - `tuple-cameras`: the webcam list
+  - `tuple-mic-route`: mic routing
+  - `tuple-perf`: call performance samples
+  - `tuple-archive`: rolling copies of the daemon log in
+    `~/.local/state/tuple-gnome/`
+  - `tuple-shell`: the IPC client
 
-- The status line under the title says where you are, so sections don't
-  repeat it.
-- One control per intent.
-- Presence is shown once.
-- Secondary actions appear on the row you point at.
-- Shortcuts live in tooltips, not on the controls.
+## Credits
+
+The original, [omarchy-tuple](https://github.com/benjaminsehl/omarchy-tuple),
+is by Benjamin Sehl. Its reverse-engineering of the Linux client, the log
+parser (`model.js`), the call-log fixtures in `tests/`, and the design rules
+all carry over. This project isn't affiliated with Tuple.
+
+MIT, like the original. See LICENSE.

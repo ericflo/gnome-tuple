@@ -1,0 +1,9 @@
+{
+  "uuid": "tuple@ericflo",
+  "name": "Tuple",
+  "description": "Tuple for Linux in the top bar: log in, start or join pair calls, mute, share, see who's in the call, and call teammates. A GNOME port of benjaminsehl/omarchy-tuple, driving the tuple CLI from tuple.app/linux.",
+  "shell-version": ["51"],
+  "settings-schema": "org.gnome.shell.extensions.tuple",
+  "url": "https://github.com/ericflo/gnome-tuple",
+  "version": 1
+}

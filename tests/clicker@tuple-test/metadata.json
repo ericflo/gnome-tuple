@@ -1,0 +1,7 @@
+{
+  "uuid": "clicker@tuple-test",
+  "name": "Tuple test clicker",
+  "description": "Test-only: injects pointer clicks on the Tuple indicator's widgets for tests/clicks.js. Loaded only inside tests/headless.sh's throwaway shell.",
+  "shell-version": ["51"],
+  "version": 1
+}
