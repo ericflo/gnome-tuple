@@ -1,0 +1,98 @@
+#!/bin/bash
+# tuple-virtualcam — feed your real camera into the "Tuple Camera" virtual
+# device (v4l2loopback), at webcam resolution, NOT mirrored.
+#
+# Why this exists, and what it does NOT do:
+#   Tuple for Linux (v2026_10_23.0) can't send webcam video. Its camera
+#   capture adapter is an unimplemented stub and the daemon rejects
+#   ShareWebcamRequest outright — both inside the closed binary, unreachable
+#   from outside (see docs/webcam-sending.md). So this does NOT make Tuple
+#   send your webcam; nothing out here can.
+#
+#   What it does: stage the send path so you're ready the day Tuple ships
+#   camera capture + device selection. It presents one stable, well-labelled
+#   capture device ("Tuple Camera", a fixed /dev/video node) carrying your
+#   framed camera. Other apps (browsers, OBS, …) can use it today; Tuple will
+#   be able to the day it can send — you'd just pick "Tuple Camera".
+#
+#   Unlike the self-view tile (bin/tuple-selfcam), this is NOT mirrored: it is
+#   what the other person would see.
+#
+# Usage:
+#   tuple-virtualcam [--input /dev/videoN] [--output /dev/videoN] [--size WxH]
+#   tuple-virtualcam --node       print the Tuple Camera device and exit
+#   tuple-virtualcam --setup      print the one-time sudo setup and exit
+# Runs until killed. Exits 3 if the loopback isn't loaded, 4 with no camera,
+# 127 without ffmpeg.
+set -uo pipefail
+here=$(dirname "$0")
+
+setup_help() {
+  cat <<'EOS'
+One-time setup (needs root), to create the "Tuple Camera" device:
+
+  # load it now:
+  sudo modprobe v4l2loopback video_nr=42 card_label="Tuple Camera" exclusive_caps=1
+
+  # and persist it across reboots:
+  echo 'options v4l2loopback video_nr=42 card_label="Tuple Camera" exclusive_caps=1' | sudo tee /etc/modprobe.d/tuple-camera.conf
+  echo v4l2loopback | sudo tee /etc/modules-load.d/tuple-camera.conf
+
+exclusive_caps=1 makes apps (Chrome, etc.) accept it as a webcam; the fixed
+video_nr keeps the device number stable across reboots.
+EOS
+}
+
+# The loopback node, found by its card label (set via modprobe card_label).
+loopback_node() {
+  local d
+  for d in /sys/class/video4linux/video*; do
+    [ -r "$d/name" ] && [ "$(cat "$d/name")" = "Tuple Camera" ] && { echo "/dev/$(basename "$d")"; return 0; }
+  done
+  return 1
+}
+
+input="" output="" size=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --node) loopback_node || { echo "Tuple Camera device not found — run: $0 --setup" >&2; exit 3; }; exit 0 ;;
+    --setup) setup_help; exit 0 ;;
+    --input) input="$2"; shift 2 ;;
+    --output) output="$2"; shift 2 ;;
+    --size) size="$2"; shift 2 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+command -v ffmpeg >/dev/null || { echo "ffmpeg not installed" >&2; exit 127; }
+
+[ -n "$output" ] || output=$(loopback_node) || {
+  echo "Tuple Camera device not found. Load the loopback first:" >&2
+  setup_help >&2
+  exit 3
+}
+# Film the first real camera (never the loopback itself — that would feed back).
+[ -n "$input" ] || input=$("$here/tuple-cameras" | sed -n '1s/[[:space:]].*//p')
+[ -n "$input" ] || { echo "No real camera found" >&2; exit 4; }
+if [ "$input" = "$output" ]; then
+  echo "input and output are the same device ($input); refusing to loop" >&2
+  exit 2
+fi
+
+# Prefer MJPEG at a webcam-friendly size; fall back to whatever the camera has.
+fmts=$(v4l2-ctl --list-formats-ext -d "$input" 2>/dev/null)
+mjpeg_at() { awk -v r="$1" '/\[[0-9]+\]:/{f=$2} /Size/ && $3==r && f ~ /MJPG/ {found=1} END{exit !found}' <<<"$fmts"; }
+in_args=(-framerate 30)
+if [ -z "$size" ]; then
+  for r in 1280x720 960x540 640x480; do
+    case "$fmts" in *"$r"*) size=$r; break ;; esac
+  done
+fi
+[ -n "$size" ] && in_args+=(-video_size "$size")
+if [ -n "$size" ] && mjpeg_at "$size"; then in_args+=(-input_format mjpeg); fi
+
+echo "Tuple Camera: feeding $input → $output ${size:+at $size} (not mirrored). Ctrl-C to stop." >&2
+exec ffmpeg -loglevel warning -nostdin \
+  -f v4l2 "${in_args[@]}" -i "$input" \
+  -vf format=yuv420p \
+  -f v4l2 "$output"
