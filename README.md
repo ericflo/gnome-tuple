@@ -126,6 +126,8 @@ changed a lot (see below).
   - `pactl` (PipeWire/PulseAudio) for choosing a mic
   - `v4l2-ctl` (v4l-utils) for the camera list
   - `mpv` for your camera tile
+  - `ffmpeg` and the `v4l2loopback` kernel module for the virtual camera
+    (see [Your webcam](#your-webcam))
 
   Everything else works without them.
 
@@ -142,6 +144,40 @@ cd ~/Projects/gnome-tuple
 GNOME Shell on Wayland only discovers new extensions when it starts. After the
 first install, or after changing the code, log out and back in. Then click
 the Tuple mark, switch Tuple on, and choose **Log in**.
+
+## Your webcam
+
+**Tuple for Linux can't send your webcam yet**, and nothing outside its binary
+can make it — the camera-capture code is an unimplemented stub and the daemon
+refuses the request, both inside the closed `tuple` binary.
+[`docs/webcam-sending.md`](docs/webcam-sending.md) has the full why.
+
+So on a call, the only way the other person sees your camera today is **inside
+your screen share**: the Camera button puts your camera on your shared screen
+as a tile (that's why Camera and sharing go together). No extra setup for that.
+
+For the day Tuple does implement sending — and for using your camera in other
+apps (browser calls, OBS) right now — the repo stages a **virtual camera**: a
+stable device called "Tuple Camera" fed by your real one. It's optional. To set
+it up:
+
+```bash
+# one-time, as root: create the "Tuple Camera" device
+sudo modprobe v4l2loopback video_nr=42 card_label="Tuple Camera" exclusive_caps=1
+# persist it across reboots
+echo 'options v4l2loopback video_nr=42 card_label="Tuple Camera" exclusive_caps=1' | sudo tee /etc/modprobe.d/tuple-camera.conf
+echo v4l2loopback | sudo tee /etc/modules-load.d/tuple-camera.conf
+```
+
+(`v4l2loopback` comes from the `v4l2loopback-dkms` package; `tuple-virtualcam
+--setup` prints these same lines.) Then, whenever you want it live:
+
+```bash
+tuple-virtualcam        # films your real camera into "Tuple Camera", un-mirrored
+```
+
+The day Tuple ships webcam capture, you point it at "Tuple Camera" and you're
+framed and ready. Until then it changes nothing on a Tuple call.
 
 ## How the v2026_10_23.0 client differs from what omarchy-tuple targeted
 
@@ -201,8 +237,9 @@ Tuple replaced the original Linux commands with its cross-platform CLI.
 - **No webcam sending or input selection:** Tuple for Linux v2026_10_23.0
   can't send your webcam (`WebcamCapturerAdapter: TODO: implement Start`) or
   choose a mic. Your camera reaches them only as a tile inside your screen
-  share. A chosen mic is applied by moving Tuple's recording stream
-  (`bin/tuple-mic-route`).
+  share (see [Your webcam](#your-webcam) and
+  [`docs/webcam-sending.md`](docs/webcam-sending.md)). A chosen mic is applied
+  by moving Tuple's recording stream (`bin/tuple-mic-route`).
 - **Video is decoded on the CPU:** Tuple's only codecs are libvpx VP8/VP9 in
   software, and it draws video through XWayland. Both get more expensive as
   the window gets bigger and as their screen's resolution goes up, which is
@@ -244,7 +281,10 @@ Files in `tuple@ericflo/`:
 - `prefs.js`, `schemas/`: preferences.
 - `bin/`:
   - `tuple-selfcam`: your camera tile
-  - `tuple-cameras`: the webcam list
+  - `tuple-cameras`: the list of real cameras to film
+  - `tuple-virtualcam`: feed a real camera into the "Tuple Camera"
+    v4l2loopback device (staging for webcam sending)
+  - `tuple-contacts`: filter the directory to the people the menu shows
   - `tuple-mic-route`: mic routing
   - `tuple-perf`: call performance samples
   - `tuple-archive`: rolling copies of the daemon log in
