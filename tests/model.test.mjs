@@ -121,12 +121,16 @@ test("parseContactsJson: shape, presence, sort", () => {
   assert.equal(c[1].online, true)
   assert.equal(M.contactPresence(c[1]), "In a call")
   assert.equal(c[2].online, false)
-  assert.equal(M.contactPresence(c[2]), "Offline")
+  // Offline/unavailable rows are faded, so they carry no label — only "in a
+  // call" and "busy" add anything beyond the dot and the fade.
+  assert.equal(M.contactPresence(c[2]), "")
   assert.deepEqual(M.parseContactsJson("[]"), [])
   assert.equal(M.parseContactsJson('{"error":"not signed in"}'), null)
   assert.equal(M.initials("Alice Smith"), "AS")
   assert.equal(M.presenceLabel("available"), "")
   assert.equal(M.presenceLabel("busy"), "Busy")
+  assert.equal(M.presenceLabel("offline"), "")
+  assert.equal(M.presenceLabel("unavailable"), "")
 })
 
 test("reduceLog: real startup log", () => {
@@ -344,6 +348,29 @@ test("abandoned `call` prompt resolves via the wall-clock fallback", () => {
   const s = M.reduceLogText("16:16:53.823|1|1|info|Engine.cpp:715|cli: call\n")
   assert.equal(s.call, "connecting")
   assert.equal(M.resolveStaleOutgoing(s).call, "idle")
+})
+
+// From a real incoming call: "received incoming call" logs the call's UUID,
+// not the caller; the caller shows up as a peer right after, and the prompt
+// holds "incoming" until it's resolved accept/reject.
+test("incoming call: the id isn't the caller, and the prompt holds until answered", () => {
+  const at = (t, msg) => `${t}|3473468|3473473|info|Caller.cpp:1|${msg}\n`
+  const s = M.reduceLogText(
+    at("19:32:14.633", "received incoming call: 6d82aea1-31a4-42f4-bf49-abcc0fcbc2d4")
+    + at("19:32:14.667", "map window: incoming_call")
+    + at("19:32:14.667", "EngineEvent: OnPeerAdded (peer 115309 cursor_mode=0 persist_paint=false)"))
+  assert.equal(s.call, "incoming")
+  assert.equal(s.incomingFrom, "")               // a UUID, so not shown as a name
+  assert.deepEqual([...s.peers], ["115309"])      // the caller, learned from the peer
+  const accepted = M.reduceLogText(at("19:32:18.011", "resolving incoming call: accept"), s)
+  assert.equal(accepted.call, "active")
+  assert.deepEqual([...accepted.peers], ["115309"])
+  const rejected = M.reduceLogText(at("19:32:18.011", "resolving incoming call: reject"), s)
+  assert.equal(rejected.call, "idle")
+  assert.deepEqual([...rejected.peers], [])
+  // An older client that logged the name directly still works.
+  const named = M.reduceLogText(at("19:40:00.000", "received incoming call: Dana Scully"))
+  assert.equal(named.incomingFrom, "Dana Scully")
 })
 
 test("parseCameras / resolveCamera / nextCamera", () => {

@@ -227,8 +227,11 @@ function sortContacts(list) {
 // "unknown", which says nothing worth printing on every row.
 function presenceLabel(status) {
   var s = String(status || "").trim().toLowerCase()
-  if (s === "" || s === "available" || s === "online" || s === "unknown") return ""
+  // Nothing for the online/unknown states, and nothing for the unreachable
+  // ones either (offline, unavailable, …): the row is faded for those, so a
+  // word would just restate the fade. Only "in call"/"busy" add something.
   if (s === "in call") return "In a call"
+  if (s === "" || s === "available" || s === "online" || !isOnlineStatus(s)) return ""
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
@@ -474,6 +477,14 @@ function reduceLog(state, entry) {
       s.peers = addUnique(s.peers, m[1])
       return finishEntry(s, entry)
     }
+    // An incoming call adds the caller as a peer while their prompt is still
+    // up; stay "incoming" until it's answered (this is how we learn who it is
+    // — "received incoming call" logs the call's id, not a name).
+    if (s.call === "incoming") {
+      if (!resolved && s.peers.indexOf(m[1]) !== -1) return state
+      s.peers = addUnique(s.peers, m[1])
+      return finishEntry(s, entry)
+    }
     // Logged many times per peer; don't churn state for repeats.
     if (!resolved && s.call === "active" && s.peers.indexOf(m[1]) !== -1) return state
     s.call = "active"; s.incomingFrom = ""; s.endingAt = -1; s.peers = addUnique(s.peers, m[1])
@@ -540,11 +551,17 @@ function reduceLog(state, entry) {
   } else if (/^(login succeeded|logged in|saved auth token$|stored auth token)/i.test(msg)) {
     s.tokenSaved = true; s.loggedOut = false
   } else if ((m = msg.match(/^received incoming call: (.*)$/))) {
-    if (s.call === "idle") s.call = "incoming"
-    s.incomingFrom = m[1].trim()
+    // Tuple logs the call's id here, not who's calling; the caller arrives as
+    // a peer right after (handled in OnPeerAdded above). Don't show a UUID.
+    if (s.call === "idle") { s.call = "incoming"; s.peers = [] }
+    var from = m[1].trim()
+    s.incomingFrom = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(from) ? "" : from
     s.incomingAt = entry.time
+  } else if ((m = msg.match(/^resolving incoming call: (\S+)/))) {
+    if (s.call !== "incoming") return resolved ? finishEntry(s, entry) : state
+    if (m[1] === "accept") { s.call = "active"; s.incomingFrom = "" } else endCall(s)
   } else if (/^(denying incoming call|incoming call already rejected)/.test(msg)) {
-    if (s.call === "incoming") s.call = "idle"
+    if (s.call === "incoming") endCall(s)
     s.incomingFrom = ""
   } else if ((m = msg.match(/^peer joined call: (.*)$/))) {
     s.call = "active"; s.incomingFrom = ""; s.peers = addUnique(s.peers, m[1])

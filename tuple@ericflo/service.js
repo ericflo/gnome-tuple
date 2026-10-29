@@ -292,18 +292,36 @@ export class Service {
         return this.inCall && this.log.peerWebcam;
     }
 
+    // The caller's name once we know it, else '' (→ "Incoming call" rather
+    // than guessing). See _incomingResolved.
     get incomingFrom() {
-        const from = this.log.incomingFrom;
-        return /^\d+$/.test(from) ? this.contactName(from) : from;
+        const p = this._incomingResolved();
+        return p ? p.name : '';
     }
 
-    // Who's calling, as {name, email}: the log gives a name (or an id), so
-    // look them up among the people held for their email (and picture).
+    // Who's calling, as {name, email}, for the notification and its picture.
     get incomingPerson() {
+        const p = this._incomingResolved();
+        return {name: p ? p.name : 'Someone', email: p ? p.email : ''};
+    }
+
+    // The caller as {id, name, email} once known, else null. Tuple's
+    // "received incoming call" logs the call's id, not the caller; the caller
+    // arrives as the first peer a moment later, so resolve from that.
+    _incomingResolved() {
         const from = this.log.incomingFrom;
+        const id = from || this.log.peers[0] || '';
+        if (id === '')
+            return null;
         const pool = this.contacts.concat(this._search?.results ?? []);
-        const c = pool.find(x => x.id === from || x.name === from);
-        return {name: this.incomingFrom || 'Someone', email: c ? c.email : ''};
+        const c = pool.find(x => x.id === id || x.name === id);
+        if (c)
+            return {id: c.id, name: c.name, email: c.email};
+        // A name the log gave us directly (older clients) but not in contacts:
+        // show it. A bare id we can't match: unknown for now.
+        if (from && !/^\d+$/.test(from))
+            return {id: from, name: from, email: ''};
+        return null;
     }
 
     get contactCounts() {
@@ -1592,15 +1610,22 @@ export class Service {
                 this.log = Model.resolveStaleIncoming(this.log);
                 this._changed();
             });
+            // The caller is only logged (as a peer) just after the call
+            // itself, so wait a moment before notifying, so it can name them.
             if (live && this._settings.get_boolean('notify-incoming')) {
-                this._incomingNote?.destroy();
-                this._incomingNote = this.notify('Incoming Tuple call', `${this.incomingFrom || 'Someone'} wants to pair`, {
-                    email: this.incomingPerson.email,
-                    urgency: 'critical',
-                    actions: [
-                        {label: 'Answer', callback: () => this.answer()},
-                        {label: 'Decline', callback: () => this.decline()},
-                    ],
+                this._later('incoming-notify', 500, () => {
+                    if (this.call !== 'incoming')
+                        return;
+                    const who = this.incomingPerson;
+                    this._incomingNote?.destroy();
+                    this._incomingNote = this.notify('Incoming Tuple call', `${who.name} wants to pair`, {
+                        email: who.email,
+                        urgency: 'critical',
+                        actions: [
+                            {label: 'Answer', callback: () => this.answer()},
+                            {label: 'Decline', callback: () => this.decline()},
+                        ],
+                    });
                 });
             }
         }
